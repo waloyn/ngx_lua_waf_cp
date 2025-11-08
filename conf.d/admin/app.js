@@ -271,11 +271,11 @@ async function renderRules(container) {
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">规则列表</h3>
-                <button class="btn btn-primary btn-sm" onclick="reloadConfig()">
+                <button class="btn btn-primary btn-sm" onclick="loadRules()">
                     <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"/>
                     </svg>
-                    重载配置
+                    重载规则
                 </button>
             </div>
             <div class="card-body">
@@ -393,11 +393,11 @@ async function viewRule(file) {
 async function reloadConfig() {
     try {
         await apiRequest('/api/reload-config', { method: 'POST' });
-        showToast('配置已重载', 'success');
-        await loadRules();
+        showToast('配置已重载', 'success');        
     } catch (error) {
         showToast('重载失败', 'error');
     }
+    await loadRules();
 }
 
 // ========== IP 管理页面 ==========
@@ -646,8 +646,21 @@ async function renderSettings(container) {
 
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title">配置文件</h3>
-                <button class="btn btn-primary btn-sm" onclick="saveConfig()">保存配置</button>
+                <h3 class="card-title">配置文件 (waf.conf)</h3>
+                <div class="flex gap-2">
+                    <button class="btn btn-secondary btn-sm" onclick="reloadConfig()">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"/>
+                        </svg>
+                        重载配置
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="saveConfig()">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z"/>
+                        </svg>
+                        保存配置
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <textarea id="configContent" style="width: 100%; min-height: 500px; font-family: 'Courier New', monospace; font-size: 12px;">加载中...</textarea>

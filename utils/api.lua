@@ -205,29 +205,18 @@ end
 function _M.getRules()
     local rules = {}
     local rulesPath = CURRENT_PATH .. "rules/"
-    
-    -- 使用 Windows 的 dir 命令获取文件列表
-    local handle = io.popen('dir "' .. rulesPath .. '*.lua" /b')
-    if handle then
-        for file in handle:lines() do
-            if file:match("%.lua$") then
-                local ruleName = file:match("(.+)%.lua$")
-                -- 安全地加载规则模块
-                local ok, ruleModule = pcall(require, "rules." .. ruleName)
-                if ok and ruleModule then
-                    rules[ruleName] = {
-                        file = file,
-                        name = ruleModule.name or ruleName,
-                        desc = ruleModule.desc or "",
-                        level = ruleModule.level or "medium",
-                        position = ruleModule.position or "uri,body"
-                    }
-                end
-            end
+    local files = localFile.getFiles(rulesPath)
+    for _, file in ipairs(files) do
+        if file:match(".lua$") then
+            local ruleName = file:match("(.+).lua$")
+            local ruleModule = require("rules." .. ruleName)
+            rules[ruleName] = {
+                file = file,
+                name = ruleModule.name,
+                desc = ruleModule.desc
+            }
         end
-        handle:close()
     end
-    
     return rules
 end
 
