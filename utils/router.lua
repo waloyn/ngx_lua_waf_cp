@@ -193,7 +193,7 @@ function _M.handle()
             if content then
                 response({content = content})
             else
-                response({message = "File not found or access denied"}, 404)
+                response({message = "File not found or access denied: " .. args.file}, 404)
             end
         end
 
@@ -207,9 +207,9 @@ function _M.handle()
             end
             local success = api.saveFile(data.file, data.content)
             if success then
-                response({message = "File saved successfully"})
+                response({message = "File saved successfully", success = true})
             else
-                response({message = "Failed to save file"}, 500)
+                response({message = "Failed to save file or access denied"}, 500)
             end
         end
 

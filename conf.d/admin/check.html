@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统检查</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 40px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #111827;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #6b7280;
+            margin-bottom: 30px;
+        }
+        .check-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            background: #f9fafb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .check-item.checking {
+            background: #fef3c7;
+        }
+        .check-item.success {
+            background: #d1fae5;
+        }
+        .check-item.error {
+            background: #fee2e2;
+        }
+        .status {
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .status.checking {
+            background: #fbbf24;
+            color: white;
+        }
+        .status.success {
+            background: #10b981;
+            color: white;
+        }
+        .status.error {
+            background: #ef4444;
+            color: white;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .details {
+            margin-top: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            max-height: 200px;
+            overflow: auto;
+        }
+        .summary {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .summary h2 {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 WAF 系统检查</h1>
+        <p class="subtitle">检查所有 API 接口和功能是否正常</p>
+
+        <div id="checks"></div>
+
+        <button onclick="runChecks()">重新检查</button>
+
+        <div id="summary" class="summary" style="display: none;">
+            <h2>检查完成</h2>
+            <p id="summaryText"></p>
+        </div>
+    </div>
+
+    <script>
+        const checks = [
+            { name: '统计数据 API', url: '/api/stats', method: 'GET' },
+            { name: '规则列表 API', url: '/api/rules', method: 'GET', validate: (data) => typeof data === 'object' },
+            { name: '白名单 API', url: '/api/whitelist', method: 'GET', validate: (data) => Array.isArray(data) },
+            { name: '黑名单 API', url: '/api/blacklist', method: 'GET', validate: (data) => Array.isArray(data) },
+            { name: '读取配置 API', url: '/api/read-file?file=waf.conf', method: 'GET', validate: (data) => data.content || data },
+        ];
+
+        async function runChecks() {
+            const container = document.getElementById('checks');
+            const summary = document.getElementById('summary');
+            summary.style.display = 'none';
+            container.innerHTML = '';
+
+            let passed = 0;
+            let failed = 0;
+
+            for (const check of checks) {
+                const item = document.createElement('div');
+                item.className = 'check-item checking';
+                item.innerHTML = `
+                    <span>${check.name}</span>
+                    <span class="status checking">检查中...</span>
+                `;
+                container.appendChild(item);
+
+                try {
+                    const response = await fetch(check.url, { method: check.method });
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        const actualData = data.data !== undefined ? data.data : data;
+                        
+                        if (check.validate && !check.validate(actualData)) {
+                            throw new Error('数据格式验证失败');
+                        }
+
+                        item.className = 'check-item success';
+                        item.innerHTML = `
+                            <span>✓ ${check.name}</span>
+                            <span class="status success">通过</span>
+                        `;
+                        
+                        const details = document.createElement('div');
+                        details.className = 'details';
+                        details.textContent = JSON.stringify(actualData, null, 2).substring(0, 500);
+                        item.appendChild(details);
+                        
+                        passed++;
+                    } else {
+                        throw new Error(`HTTP ${response.status}: ${data.message || '未知错误'}`);
+                    }
+                } catch (error) {
+                    item.className = 'check-item error';
+                    item.innerHTML = `
+                        <span>✗ ${check.name}</span>
+                        <span class="status error">失败</span>
+                    `;
+                    
+                    const details = document.createElement('div');
+                    details.className = 'details';
+                    details.style.color = '#ef4444';
+                    details.textContent = error.message;
+                    item.appendChild(details);
+                    
+                    failed++;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+
+            summary.style.display = 'block';
+            const summaryText = document.getElementById('summaryText');
+            summaryText.innerHTML = `
+                <strong>通过: ${passed}</strong> | 
+                <strong style="color: #ef4444;">失败: ${failed}</strong> | 
+                <strong>总计: ${checks.length}</strong>
+            `;
+
+            if (failed === 0) {
+                summaryText.innerHTML += '<br><br>🎉 所有检查都通过了！系统运行正常。';
+            } else {
+                summaryText.innerHTML += '<br><br>⚠️ 部分检查失败，请查看详细信息并修复问题。';
+            }
+        }
+
+        // 页面加载时自动运行检查
+        runChecks();
+    </script>
+</body>
+</html>
