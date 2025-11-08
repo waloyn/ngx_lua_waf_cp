@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAF 黑白名单</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="auth.js"></script>
+    <style>
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 48px 0 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+        }
+        .sidebar-sticky {
+            position: relative;
+            top: 0;
+            height: calc(100vh - 48px);
+            padding-top: .5rem;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        .navbar-brand {
+            padding-top: .75rem;
+            padding-bottom: .75rem;
+        }
+        .navbar {
+            box-shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
+        }
+    </style>
+</head>
+<body>
+    <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+        <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3" href="#">WAF 控制台</a>
+        <button class="navbar-toggler position-absolute d-md-none collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="w-100"></div>
+        <div class="navbar-nav">
+            <div class="nav-item text-nowrap">
+                <a class="nav-link px-3" href="javascript:void(0)" onclick="handleLogout()">退出</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/dashboard.html">
+                                <i class="bi bi-speedometer2"></i> 仪表盘
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/rules.html">
+                                <i class="bi bi-shield-check"></i> 规则配置
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#">
+                                <i class="bi bi-list-check"></i> 黑白名单
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/logs.html">
+                                <i class="bi bi-journal-text"></i> 日志查看
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/settings.html">
+                                <i class="bi bi-gear"></i> 系统设置
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">黑白名单</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-outline-secondary" onclick="exportIPList()">
+                                <i class="bi bi-download"></i> 导出
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('importFile').click()">
+                                <i class="bi bi-upload"></i> 导入
+                            </button>
+                            <input type="file" id="importFile" style="display: none" accept=".txt,.csv" onchange="importIPList(this)">
+                        </div>
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addIPModal">
+                            <i class="bi bi-plus"></i> 添加
+                        </button>
+                    </div>
+                </div>
+
+                <ul class="nav nav-tabs" id="ipListTabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#blacklist">IP黑名单</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#whitelist">IP白名单</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#whitehost">HOST白名单</a>
+                    </li>
+                </ul>
+
+                <div class="tab-content mt-3">
+                    <div class="tab-pane fade show active" id="blacklist">
+                        <div class="form-group">
+                            <textarea class="form-control" id="blacklistContent" rows="15" style="font-family: monospace;"></textarea>
+                            <button type="button" class="btn btn-primary mt-3" onclick="saveIPList('black')">
+                                <i class="bi bi-save"></i> 保存黑名单
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="whitelist">
+                        <div class="form-group">
+                            <textarea class="form-control" id="whitelistContent" rows="15" style="font-family: monospace;"></textarea>
+                            <button type="button" class="btn btn-primary mt-3" onclick="saveIPList('white')">
+                                <i class="bi bi-save"></i> 保存白名单
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="whitehost">
+                        <div class="form-group">
+                            <textarea class="form-control" id="whitehostContent" rows="15" style="font-family: monospace;"></textarea>
+                            <button type="button" class="btn btn-primary mt-3" onclick="saveIPList('host')">
+                                <i class="bi bi-save"></i> 保存HOST白名单
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 添加IP模态框 -->
+                <div class="modal fade" id="addIPModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">添加黑白名单</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="addIPForm">
+                                    <div class="mb-3">
+                                        <label class="form-label">内容</label>
+                                        <input type="text" class="form-control" id="ipAddress" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">类型</label>
+                                        <select class="form-select" id="ipType">
+                                            <option value="black">IP黑名单</option>
+                                            <option value="white">IP白名单</option>
+                                            <option value="host">HOST白名单</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">备注</label>
+                                        <textarea class="form-control" id="ipNote" rows="2"></textarea>
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                                <button type="button" class="btn btn-primary" onclick="addIP()">添加</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 从文件加载IP列表
+        async function loadIPList() {
+            try {
+                const [blackResponse, whiteResponse, hostResponse] = await Promise.all([
+                    fetch('/api/read-file?file=blackIp'),
+                    fetch('/api/read-file?file=whiteIp'),
+                    fetch('/api/read-file?file=whitehost')
+                ]);
+
+                const blackContent = await blackResponse.json();
+                const whiteContent = await whiteResponse.json();
+                const hostContent = await hostResponse.json();
+
+                document.getElementById('blacklistContent').value = blackContent.data.content;
+                document.getElementById('whitelistContent').value = whiteContent.data.content;
+                document.getElementById('whitehostContent').value = hostContent.data.content;
+            } catch (error) {
+                alert('加载IP列表失败：' + error.message);
+            }
+        }
+
+        // 保存IP列表
+        async function saveIPList(type) {
+            const content = document.getElementById(type === 'black' ? 'blacklistContent' : 
+                                                  type === 'white' ? 'whitelistContent' : 'whitehostContent').value;
+            const file = type === 'black' ? 'blackIp' : 
+                        type === 'white' ? 'whiteIp' : 'whitehost';
+
+            try {
+                const response = await fetch('/api/save-file', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ file, content })
+                });
+
+                if (!response.ok) {
+                    throw new Error('保存失败');
+                }
+
+                alert('保存成功');
+            } catch (error) {
+                alert('保存失败：' + error.message);
+            }
+        }
+
+        // 导出IP列表
+        function exportIPList() {
+            const data = {
+                blacklist: document.getElementById('blacklistContent').value,
+                whitelist: document.getElementById('whitelistContent').value,
+                whitehost: document.getElementById('whitehostContent').value
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'ip-list.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // 导入IP列表
+        function importIPList(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    document.getElementById('blacklistContent').value = data.blacklist || '';
+                    document.getElementById('whitelistContent').value = data.whitelist || '';
+                    document.getElementById('whitehostContent').value = data.whitehost || '';
+                } catch (error) {
+                    alert('导入失败：文件格式错误');
+                }
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', loadIPList);
+    </script>
+</body>
+</html>

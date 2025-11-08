@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>访问被拒绝 - WAF防护</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f6fa;
+            color: #2f3640;
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            text-align: center;
+            animation: slideUp 0.5s ease-out;
+        }
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        .icon {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 30px;
+            position: relative;
+        }
+        .icon svg {
+            width: 100%;
+            height: 100%;
+            fill: #e74c3c;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+        h1 {
+            color: #e74c3c;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #7f8c8d;
+            margin-bottom: 15px;
+        }
+        .details {
+            background: #f8f9fa;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .details p {
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .details strong {
+            color: #2c3e50;
+        }
+        .button {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: background 0.3s;
+            margin-top: 20px;
+        }
+        .button:hover {
+            background: #2980b9;
+        }
+        #countdown {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+        </div>
+        <h1>访问被拒绝</h1>
+        <p>抱歉，您的请求已被WAF安全防护系统拦截</p>
+        <div class="details">
+            <p><strong>请求ID：</strong> <span>{REQUEST_ID}</span></p>
+            <p><strong>IP地址：</strong> <span>{IP}</span></p>
+            <p><strong>拦截原因：</strong> <span>{BLOCK_REASON}</span></p>
+            <p><strong>发生时间：</strong> <span>{REQUEST_TIME}</span></p>
+        </div>
+        <p>如果您认为这是一个误判，请联系网站管理员</p>
+        <p>页面将在 <span id="countdown">10</span> 秒后自动刷新</p>
+        <a href="javascript:window.location.reload()" class="button">立即刷新</a>
+    </div>
+
+    <script>
+        // 倒计时刷新
+        let countdown = 10;
+        const countdownElement = document.getElementById('countdown');
+        const timer = setInterval(() => {
+            countdown--;
+            countdownElement.textContent = countdown;
+            if (countdown <= 0) {
+                clearInterval(timer);
+                window.location.reload();
+            }
+        }, 1000);
+
+        // 添加复制功能
+        document.querySelectorAll('.details span').forEach(span => {
+            span.style.cursor = 'pointer';
+            span.title = '点击复制';
+            span.addEventListener('click', function() {
+                const text = this.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    const originalText = this.textContent;
+                    this.textContent = '已复制！';
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                    }, 1000);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

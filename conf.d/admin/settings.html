@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAF 系统设置</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 48px 0 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+        }
+        .sidebar-sticky {
+            position: relative;
+            top: 0;
+            height: calc(100vh - 48px);
+            padding-top: .5rem;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        .navbar-brand {
+            padding-top: .75rem;
+            padding-bottom: .75rem;
+        }
+        .navbar {
+            box-shadow: 0 .125rem .25rem rgba(0, 0, 0, .075);
+        }
+        .settings-section {
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+        <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3" href="#">WAF 控制台</a>
+        <button class="navbar-toggler position-absolute d-md-none collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="w-100"></div>
+        <div class="navbar-nav">
+            <div class="nav-item text-nowrap">
+                <a class="nav-link px-3" href="#logout">退出</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/dashboard.html">
+                                <i class="bi bi-speedometer2"></i> 仪表盘
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/rules.html">
+                                <i class="bi bi-shield-check"></i> 规则配置
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/ip-list.html">
+                                <i class="bi bi-list-check"></i> 黑白名单
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/logs.html">
+                                <i class="bi bi-journal-text"></i> 日志查看
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#">
+                                <i class="bi bi-gear"></i> 系统设置
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">系统设置</h1>
+                </div>
+
+                <form id="settingsForm" class="needs-validation" novalidate>
+                    <div class="settings-section">
+                        <h3 class="h4 mb-3">基础配置</h3>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">WAF 运行模式</label>
+                                <select class="form-select" id="wafMode" required>
+                                    <option value="active">主动防护</option>
+                                    <option value="passive">被动监控</option>
+                                    <option value="learning">学习模式</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">日志级别</label>
+                                <select class="form-select" id="logLevel" required>
+                                    <option value="info">信息</option>
+                                    <option value="warn">警告</option>
+                                    <option value="error">错误</option>
+                                    <option value="debug">调试</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">日志保留天数</label>
+                                <input type="number" class="form-control" id="logRetention" min="1" max="365" value="30" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">最大请求大小 (MB)</label>
+                                <input type="number" class="form-control" id="maxRequestSize" min="1" max="100" value="10" required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3 class="h4 mb-3">规则更新</h3>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="autoUpdate" checked>
+                                    <label class="form-check-label">启用自动更新</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">更新频率</label>
+                                <select class="form-select" id="updateFrequency">
+                                    <option value="daily">每天</option>
+                                    <option value="weekly">每周</option>
+                                    <option value="monthly">每月</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-primary" onclick="checkUpdate()">
+                                    <i class="bi bi-cloud-download"></i> 检查更新
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3 class="h4 mb-3">系统维护</h3>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <button type="button" class="btn btn-warning me-2" onclick="backupConfig()">
+                                    <i class="bi bi-download"></i> 备份配置
+                                </button>
+                                <button type="button" class="btn btn-info me-2" onclick="document.getElementById('restoreFile').click()">
+                                    <i class="bi bi-upload"></i> 恢复配置
+                                </button>
+                                <input type="file" id="restoreFile" style="display: none" accept=".json" onchange="restoreConfig(this)">
+                                <button type="button" class="btn btn-danger me-2" onclick="resetConfig()">
+                                    <i class="bi bi-arrow-counterclockwise"></i> 重置配置
+                                </button>
+                                <button type="button" class="btn btn-success" onclick="reloadConfig()">
+                                    <i class="bi bi-arrow-repeat"></i> 重载配置
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 mb-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> 保存设置
+                        </button>
+                    </div>
+                </form>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 系统配置数据
+        let config = {
+            wafMode: 'active',
+            logLevel: 'info',
+            logRetention: 30,
+            maxRequestSize: 10,
+            autoUpdate: true,
+            updateFrequency: 'daily'
+        };
+
+        // 加载配置
+        function loadConfig() {
+            // TODO: 从后端API获取配置
+            document.getElementById('wafMode').value = config.wafMode;
+            document.getElementById('logLevel').value = config.logLevel;
+            document.getElementById('logRetention').value = config.logRetention;
+            document.getElementById('maxRequestSize').value = config.maxRequestSize;
+            document.getElementById('autoUpdate').checked = config.autoUpdate;
+            document.getElementById('updateFrequency').value = config.updateFrequency;
+        }
+
+        // 保存配置
+        function saveConfig(event) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const form = document.getElementById('settingsForm');
+            if (form.checkValidity()) {
+                config = {
+                    wafMode: document.getElementById('wafMode').value,
+                    logLevel: document.getElementById('logLevel').value,
+                    logRetention: parseInt(document.getElementById('logRetention').value),
+                    maxRequestSize: parseInt(document.getElementById('maxRequestSize').value),
+                    autoUpdate: document.getElementById('autoUpdate').checked,
+                    updateFrequency: document.getElementById('updateFrequency').value
+                };
+
+                // TODO: 调用后端API保存配置
+                alert('设置已保存');
+            }
+
+            form.classList.add('was-validated');
+        }
+
+        // 检查更新
+        function checkUpdate() {
+            // TODO: 调用后端API检查更新
+            alert('正在检查更新...');
+        }
+
+        // 备份配置
+        function backupConfig() {
+            const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `waf-config-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // 恢复配置
+        function restoreConfig(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    config = data;
+                    loadConfig();
+                    alert('配置已恢复');
+                } catch (error) {
+                    alert('恢复失败：文件格式错误');
+                }
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        // 重置配置
+        function resetConfig() {
+            if (confirm('确定要重置所有配置吗？这将无法恢复！')) {
+                config = {
+                    wafMode: 'active',
+                    logLevel: 'info',
+                    logRetention: 30,
+                    maxRequestSize: 10,
+                    autoUpdate: true,
+                    updateFrequency: 'daily'
+                };
+                loadConfig();
+                // TODO: 调用后端API重置配置
+                alert('配置已重置');
+            }
+        }
+
+        // 重载配置
+        function reloadConfig() {
+            if (confirm('确定要重载配置吗？这将应用最新的配置设置。')) {
+                // TODO: 调用后端API重载配置
+                fetch('/api/reload-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.code === 200) {
+                        alert('配置已重载');
+                    } else {
+                        alert('重载配置失败：' + data['data'].message);
+                    }
+                })
+                .catch(error => {
+                    alert('重载配置失败：' + error.message);
+                });
+            }
+        }
+
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
+            document.getElementById('settingsForm').addEventListener('submit', saveConfig);
+        });
+    </script>
+</body>
+</html>
