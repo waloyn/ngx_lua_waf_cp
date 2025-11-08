@@ -206,17 +206,32 @@ function _M.getRules()
     local rules = {}
     local rulesPath = CURRENT_PATH .. "rules/"
     local files = localFile.getFiles(rulesPath)
+    
     for _, file in ipairs(files) do
-        if file:match(".lua$") then
-            local ruleName = file:match("(.+).lua$")
-            local ruleModule = require("rules." .. ruleName)
-            rules[ruleName] = {
-                file = file,
-                name = ruleModule.name,
-                desc = ruleModule.desc
-            }
+        if file:match("%.lua$") then
+            local ruleName = file:match("(.+)%.lua$")
+            
+            -- 安全地加载规则模块
+            local ok, ruleModule = pcall(require, "rules." .. ruleName)
+            if ok and ruleModule then
+                -- 检查规则是否启用
+                local configKey = "exp_" .. ruleName
+                local enabled = WAF_CONFIG and WAF_CONFIG[configKey] ~= "off"
+                
+                rules[ruleName] = {
+                    file = file,
+                    name = ruleModule.name or ruleName,
+                    desc = ruleModule.desc or "",
+                    level = ruleModule.level or "medium",
+                    position = ruleModule.position or "uri,body",
+                    enabled = enabled
+                }
+            else
+                ngx.log(ngx.WARN, "Failed to load rule module: ", ruleName)
+            end
         end
     end
+    
     return rules
 end
 

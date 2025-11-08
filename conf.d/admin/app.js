@@ -304,26 +304,54 @@ async function renderRules(container) {
 }
 
 async function loadRules() {
+    const tbody = document.getElementById('rulesTableBody');
+    
     try {
+        console.log('开始加载规则...');
         const rulesData = await apiRequest('/api/rules');
-        const tbody = document.getElementById('rulesTableBody');
+        console.log('API 返回数据:', rulesData);
+        console.log('数据类型:', typeof rulesData);
+        console.log('是否为对象:', typeof rulesData === 'object');
+        console.log('键数量:', rulesData ? Object.keys(rulesData).length : 0);
         
-        if (!rulesData || Object.keys(rulesData).length === 0) {
+        if (!rulesData) {
+            console.error('规则数据为空');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">规则数据为空</td></tr>';
+            return;
+        }
+        
+        if (typeof rulesData !== 'object') {
+            console.error('规则数据类型错误:', typeof rulesData);
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">规则数据格式错误</td></tr>';
+            return;
+        }
+        
+        const keys = Object.keys(rulesData);
+        if (keys.length === 0) {
+            console.warn('规则列表为空');
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">暂无规则</td></tr>';
             return;
         }
         
+        console.log('开始转换规则数据...');
         // 将对象转换为数组
-        const rules = Object.entries(rulesData).map(([key, rule]) => ({
-            key: key,
-            file: rule.file,
-            name: rule.name,
-            desc: rule.desc,
-            level: rule.level || 'medium',
-            position: rule.position || 'uri,body',
-            enabled: WAF_CONFIG && WAF_CONFIG['exp_' + key] !== 'off'
-        }));
+        const rules = Object.entries(rulesData).map(([key, rule]) => {
+            console.log(`处理规则: ${key}`, rule);
+            return {
+                key: key,
+                file: rule.file || (key + '.lua'),
+                name: rule.name || key,
+                desc: rule.desc || '',
+                level: rule.level || 'medium',
+                position: rule.position || 'uri,body',
+                enabled: rule.enabled !== false
+            };
+        });
         
+        console.log('转换后的规则数组:', rules);
+        console.log('规则数量:', rules.length);
+        
+        // 渲染表格
         tbody.innerHTML = rules.map(rule => `
             <tr>
                 <td><strong>${rule.name}</strong></td>
@@ -348,9 +376,17 @@ async function loadRules() {
                 </td>
             </tr>
         `).join('');
+        
+        console.log('规则表格渲染完成');
     } catch (error) {
-        console.error('Failed to load rules:', error);
-        document.getElementById('rulesTableBody').innerHTML = '<tr><td colspan="6" style="text-align: center; color: red;">加载失败</td></tr>';
+        console.error('加载规则失败:', error);
+        console.error('错误堆栈:', error.stack);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: red;">
+                加载失败: ${error.message}<br>
+                <small>请打开浏览器控制台查看详细错误信息</small>
+            </td></tr>`;
+        }
     }
 }
 
