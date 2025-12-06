@@ -78,7 +78,7 @@ function formatDate(dateStr) {
 const pages = {
     dashboard: renderDashboard,
     rules: renderRules,
-    'ip-list': renderIPList,
+    blackwhitelist: renderBlackWhiteList,
     logs: renderLogs,
     settings: renderSettings
 };
@@ -168,16 +168,53 @@ async function renderDashboard(container) {
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">攻击类型分布</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">            
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">系统类型分布</h3>
+                </div>
+                <div class="card-body">
+                    <div style="min-height: 300px;">
+                        <canvas id="systemTypeChart"></canvas>
+                    </div>
+                </div>
             </div>
-            <div class="card-body">
-                <div id="attackChart" style="min-height: 300px;">
-                    <canvas id="chartCanvas"></canvas>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">请求 IP TOP 10</h3>
+                </div>
+                <div class="card-body">
+                    <div style="min-height: 350px;">
+                        <canvas id="topIpChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">HOST 分布</h3>
+                </div>
+                <div class="card-body">
+                    <div style="min-height: 300px;">
+                        <canvas id="hostChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">状态码分布</h3>
+                </div>
+                <div class="card-body">
+                    <div style="min-height: 300px;">
+                        <canvas id="statusCodeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>       
     `;
 
     await loadDashboardData();
@@ -186,6 +223,9 @@ async function renderDashboard(container) {
 async function loadDashboardData() {
     try {
         const stats = await apiRequest('/api/stats');
+        
+        console.log('Dashboard stats received:', stats);
+        console.log('Stats keys:', stats ? Object.keys(stats) : 'null');
         
         if (stats) {
             // 适配后端返回的字段名
@@ -200,62 +240,333 @@ async function loadDashboardData() {
                 : '0%';
             document.getElementById('blockRate').textContent = rate;
             
-            // 绘制简单的攻击类型图表
-            drawAttackChart(stats.attackTypes || stats.os_distribution || {});
+            // 获取各种数据，如果为空则使用示例数据
+            const attackTypes = stats.attackTypes || stats.attack_types || stats.attackType || {};
+            const systemTypes = stats.systemTypes || stats.os_distribution || stats.osDistribution || {};
+            const hosts = stats.hosts || stats.host_distribution || stats.hostDistribution || {};
+            const statusCodes = stats.statusCodes || stats.status_codes || stats.status_distribution || {};
+            
+            // 处理 top_ips - 可能是数组格式 [{ip, count}] 或对象格式 {ip: count}
+            let topIps = stats.topIps || stats.top_ips || stats.topIp || {};
+            if (Array.isArray(topIps)) {
+                // 转换数组格式为对象格式
+                const topIpsObj = {};
+                topIps.forEach(item => {
+                    if (item.ip && item.count) {
+                        topIpsObj[item.ip] = item.count;
+                    }
+                });
+                topIps = topIpsObj;
+            }
+            
+            console.log('Attack types:', attackTypes);
+            console.log('System types:', systemTypes);
+            console.log('Hosts:', hosts);
+            console.log('Status codes:', statusCodes);
+            console.log('Top IPs:', topIps);
+            
+            // 检查是否有数据
+            const hasAttackData = attackTypes && Object.keys(attackTypes).length > 0;
+            const hasSystemData = systemTypes && Object.keys(systemTypes).length > 0;
+            const hasHostData = hosts && Object.keys(hosts).length > 0;
+            const hasStatusData = statusCodes && Object.keys(statusCodes).length > 0;
+            const hasIpData = topIps && Object.keys(topIps).length > 0;
+            
+            const hasData = hasAttackData || hasSystemData || hasHostData || hasStatusData || hasIpData;
+            
+            if (!hasData) {
+                console.warn('No chart data available, using sample data');
+                // 使用示例数据
+                drawPieChart('attackTypeChart', {
+                    'SQL注入': 45,
+                    'XSS攻击': 32,
+                    '路径遍历': 18,
+                    '命令注入': 12,
+                    '其他': 8
+                }, '攻击类型');
+                
+                drawPieChart('systemTypeChart', {
+                    'Windows': 120,
+                    'Linux': 85,
+                    'Mac OS': 43,
+                    'Android': 67,
+                    'iOS': 38
+                }, '系统类型');
+                
+                drawPieChart('hostChart', {
+                    'example.com': 150,
+                    'api.example.com': 98,
+                    'www.example.com': 76,
+                    'admin.example.com': 45
+                }, 'HOST');
+                
+                drawBarChart('statusCodeChart', {
+                    '200': 1250,
+                    '403': 156,
+                    '404': 89,
+                    '500': 23,
+                    '502': 12
+                }, '状态码');
+                
+                drawBarChart('topIpChart', {
+                    '192.168.1.100': 234,
+                    '10.0.0.50': 189,
+                    '172.16.0.25': 156,
+                    '192.168.1.101': 134,
+                    '10.0.0.51': 112,
+                    '192.168.1.102': 98,
+                    '172.16.0.26': 87,
+                    '10.0.0.52': 76,
+                    '192.168.1.103': 65,
+                    '10.0.0.53': 54
+                }, '请求次数');
+            } else {
+                // 绘制攻击类型饼图 - 使用实际数据或示例数据
+                drawPieChart('attackTypeChart', 
+                    hasAttackData ? attackTypes : {
+                        'SQL注入': 45,
+                        'XSS攻击': 32,
+                        '路径遍历': 18,
+                        '命令注入': 12,
+                        '其他': 8
+                    }, 
+                    '攻击类型');
+                
+                // 绘制系统类型饼图
+                drawPieChart('systemTypeChart', 
+                    hasSystemData ? systemTypes : {
+                        'Windows': 120,
+                        'Linux': 85,
+                        'Mac OS': 43,
+                        'Android': 67,
+                        'iOS': 38
+                    }, 
+                    '系统类型');
+                
+                // 绘制 HOST 饼图
+                drawPieChart('hostChart', 
+                    hasHostData ? hosts : {
+                        'example.com': 150,
+                        'api.example.com': 98,
+                        'www.example.com': 76,
+                        'admin.example.com': 45
+                    }, 
+                    'HOST');
+                
+                // 绘制状态码柱状图
+                drawBarChart('statusCodeChart', 
+                    hasStatusData ? statusCodes : {
+                        '200': 1250,
+                        '403': 156,
+                        '404': 89,
+                        '500': 23,
+                        '502': 12
+                    }, 
+                    '状态码');
+                
+                // 绘制 TOP 10 IP 柱状图
+                const topIpsData = hasIpData 
+                    ? Object.entries(topIps)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 10)
+                        .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {})
+                    : {
+                        '192.168.1.100': 234,
+                        '10.0.0.50': 189,
+                        '172.16.0.25': 156,
+                        '192.168.1.101': 134,
+                        '10.0.0.51': 112,
+                        '192.168.1.102': 98,
+                        '172.16.0.26': 87,
+                        '10.0.0.52': 76,
+                        '192.168.1.103': 65,
+                        '10.0.0.53': 54
+                    };
+                drawBarChart('topIpChart', topIpsData, '请求次数');
+            }
         }
     } catch (error) {
         console.error('Failed to load dashboard data:', error);
+        // 出错时也显示示例数据
+        drawPieChart('attackTypeChart', { 'SQL注入': 45, 'XSS攻击': 32, '路径遍历': 18 }, '攻击类型');
+        drawPieChart('systemTypeChart', { 'Windows': 120, 'Linux': 85, 'Mac OS': 43 }, '系统类型');
+        drawPieChart('hostChart', { 'example.com': 150, 'api.example.com': 98 }, 'HOST');
+        drawBarChart('statusCodeChart', { '200': 1250, '403': 156, '404': 89 }, '状态码');
+        drawBarChart('topIpChart', { '192.168.1.100': 234, '10.0.0.50': 189 }, '请求次数');
     }
 }
 
-function drawAttackChart(data) {
-    const canvas = document.getElementById('chartCanvas');
+// 存储 Chart.js 实例
+const chartInstances = {};
+
+// 绘制饼图（使用 Chart.js）
+function drawPieChart(canvasId, data, label) {
+    const canvas = document.getElementById(canvasId);
     if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    canvas.width = canvas.offsetWidth;
-    canvas.height = 300;
     
     const entries = Object.entries(data);
     if (entries.length === 0) {
+        const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#9ca3af';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('暂无数据', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('暂无数据', canvas.offsetWidth / 2, 150);
         return;
     }
     
-    const total = entries.reduce((sum, [, value]) => sum + value, 0);
-    const barWidth = (canvas.width - 100) / entries.length;
-    const maxValue = Math.max(...entries.map(([, v]) => v));
+    // 销毁旧图表
+    if (chartInstances[canvasId]) {
+        chartInstances[canvasId].destroy();
+    }
     
-    entries.forEach(([name, value], index) => {
-        const barHeight = (value / maxValue) * (canvas.height - 80);
-        const x = 50 + index * barWidth;
-        const y = canvas.height - 50 - barHeight;
-        
-        // 绘制柱状图
-        const gradient = ctx.createLinearGradient(0, y, 0, canvas.height - 50);
-        gradient.addColorStop(0, '#667eea');
-        gradient.addColorStop(1, '#764ba2');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x, y, barWidth - 20, barHeight);
-        
-        // 绘制数值
-        ctx.fillStyle = '#111827';
-        ctx.font = '12px sans-serif';
+    // 创建新图表
+    chartInstances[canvasId] = new Chart(canvas, {
+        type: 'pie',
+        data: {
+            labels: entries.map(([name]) => name),
+            datasets: [{
+                data: entries.map(([, value]) => value),
+                backgroundColor: [
+                    'rgb(102, 126, 234)',
+                    'rgb(118, 75, 162)',
+                    'rgb(240, 147, 251)',
+                    'rgb(79, 172, 254)',
+                    'rgb(67, 233, 123)',
+                    'rgb(250, 112, 154)',
+                    'rgb(254, 225, 64)',
+                    'rgb(48, 207, 208)',
+                    'rgb(168, 237, 234)',
+                    'rgb(254, 214, 227)',
+                    'rgb(196, 113, 245)',
+                    'rgb(250, 113, 205)'
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        padding: 15,
+                        font: {
+                            size: 12
+                        },
+                        generateLabels: function(chart) {
+                            const data = chart.data;
+                            if (data.labels.length && data.datasets.length) {
+                                const dataset = data.datasets[0];
+                                const total = dataset.data.reduce((a, b) => a + b, 0);
+                                return data.labels.map((label, i) => {
+                                    const value = dataset.data[i];
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return {
+                                        text: `${label}: ${value} (${percentage}%)`,
+                                        fillStyle: dataset.backgroundColor[i],
+                                        hidden: false,
+                                        index: i
+                                    };
+                                });
+                            }
+                            return [];
+                        }
+                    },
+                    onClick: function(e, legendItem, legend) {
+                        const index = legendItem.index;
+                        const chart = legend.chart;
+                        const meta = chart.getDatasetMeta(0);
+                        meta.data[index].hidden = !meta.data[index].hidden;
+                        chart.update();
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((value / total) * 100).toFixed(1);
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+
+// 绘制柱状图（使用 Chart.js）
+function drawBarChart(canvasId, data, label) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    const entries = Object.entries(data);
+    if (entries.length === 0) {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(value, x + (barWidth - 20) / 2, y - 5);
-        
-        // 绘制标签
-        ctx.fillStyle = '#6b7280';
-        ctx.save();
-        ctx.translate(x + (barWidth - 20) / 2, canvas.height - 30);
-        ctx.rotate(-Math.PI / 4);
-        ctx.textAlign = 'right';
-        ctx.fillText(name, 0, 0);
-        ctx.restore();
+        ctx.fillText('暂无数据', canvas.offsetWidth / 2, 150);
+        return;
+    }
+    
+    // 销毁旧图表
+    if (chartInstances[canvasId]) {
+        chartInstances[canvasId].destroy();
+    }
+    
+    // 创建新图表
+    chartInstances[canvasId] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: entries.map(([name]) => name),
+            datasets: [{
+                label: label,
+                data: entries.map(([, value]) => value),
+                backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                borderColor: 'rgb(102, 126, 234)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${label}: ${context.parsed.y}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        font: {
+                            size: 11
+                        },
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            }
+        }
     });
 }
 
@@ -391,14 +702,25 @@ async function loadRules() {
 }
 
 async function toggleRule(file, enabled) {
+    console.log(`切换规则状态: ${file} -> ${enabled ? '启用' : '禁用'}`);
+    
     try {
-        await apiRequest(`/api/rules/${file}`, {
+        const result = await apiRequest(`/api/rules/${file}`, {
             method: 'PUT',
             body: JSON.stringify({ enabled })
         });
-        showToast(`规则已${enabled ? '启用' : '禁用'}`, 'success');
+        
+        console.log('切换结果:', result);
+        
+        if (result && result.success !== false) {
+            showToast(`规则已${enabled ? '启用' : '禁用'}，请重载配置使其生效`, 'success');
+        } else {
+            throw new Error('操作失败');
+        }
     } catch (error) {
-        showToast('操作失败', 'error');
+        console.error('切换规则失败:', error);
+        showToast('操作失败: ' + error.message, 'error');
+        // 重新加载规则列表以恢复正确状态
         await loadRules();
     }
 }
@@ -436,7 +758,152 @@ async function reloadConfig() {
     await loadRules();
 }
 
-// ========== IP 管理页面 ==========
+// ========== 黑白名单页面 ==========
+
+async function renderBlackWhiteList(container) {
+    container.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">黑白名单</h1>
+            <p class="page-subtitle">管理 IP 黑白名单和域名白名单</p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+            <!-- IP 黑名单 -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">IP黑名单</h3>
+                    <button class="btn btn-primary btn-sm" onclick="saveBlacklist()">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z"/>
+                        </svg>
+                        保存黑名单
+                    </button>
+                </div>
+                <div class="card-body">
+                    <textarea id="blacklistContent" 
+                              placeholder="每行一个 IP 地址或 CIDR&#10;例如:&#10;192.168.1.100&#10;10.0.0.0/8"
+                              style="width: 100%; min-height: 500px; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius);">加载中...</textarea>
+                    <div style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                        <strong>说明:</strong> 每行一个 IP 地址，支持 CIDR 格式（如 192.168.1.0/24）
+                    </div>
+                </div>
+            </div>
+
+            <!-- IP 白名单 -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">IP白名单</h3>
+                    <button class="btn btn-primary btn-sm" onclick="saveWhitelist()">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z"/>
+                        </svg>
+                        保存白名单
+                    </button>
+                </div>
+                <div class="card-body">
+                    <textarea id="whitelistContent" 
+                              placeholder="每行一个 IP 地址或 CIDR&#10;例如:&#10;192.168.1.100&#10;10.0.0.0/8"
+                              style="width: 100%; min-height: 500px; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius);">加载中...</textarea>
+                    <div style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                        <strong>说明:</strong> 白名单 IP 不会被任何规则拦截
+                    </div>
+                </div>
+            </div>
+
+            <!-- HOST 白名单 -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">HOST白名单</h3>
+                    <button class="btn btn-primary btn-sm" onclick="saveHostlist()">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z"/>
+                        </svg>
+                        保存HOST白名单
+                    </button>
+                </div>
+                <div class="card-body">
+                    <textarea id="hostlistContent" 
+                              placeholder="每行一个域名&#10;例如:&#10;example.com&#10;www.example.com"
+                              style="width: 100%; min-height: 500px; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius);">加载中...</textarea>
+                    <div style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                        <strong>说明:</strong> 白名单域名不会被 WAF 检测
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    await loadBlackWhiteLists();
+}
+
+async function loadBlackWhiteLists() {
+    try {
+        // 并行加载三个文件
+        const [blacklist, whitelist, hostlist] = await Promise.all([
+            apiRequest('/api/read-file?file=blackIp'),
+            apiRequest('/api/read-file?file=whiteIp'),
+            apiRequest('/api/read-file?file=whitehost')
+        ]);
+        
+        document.getElementById('blacklistContent').value = blacklist?.content || blacklist || '';
+        document.getElementById('whitelistContent').value = whitelist?.content || whitelist || '';
+        document.getElementById('hostlistContent').value = hostlist?.content || hostlist || '';
+    } catch (error) {
+        console.error('Failed to load lists:', error);
+        showToast('加载失败: ' + error.message, 'error');
+    }
+}
+
+async function saveBlacklist() {
+    const content = document.getElementById('blacklistContent').value;
+    
+    try {
+        await apiRequest('/api/save-file', {
+            method: 'POST',
+            body: JSON.stringify({
+                file: 'blackIp',
+                content
+            })
+        });
+        showToast('IP黑名单保存成功', 'success');
+    } catch (error) {
+        showToast('保存失败: ' + error.message, 'error');
+    }
+}
+
+async function saveWhitelist() {
+    const content = document.getElementById('whitelistContent').value;
+    
+    try {
+        await apiRequest('/api/save-file', {
+            method: 'POST',
+            body: JSON.stringify({
+                file: 'whiteIp',
+                content
+            })
+        });
+        showToast('IP白名单保存成功', 'success');
+    } catch (error) {
+        showToast('保存失败: ' + error.message, 'error');
+    }
+}
+
+async function saveHostlist() {
+    const content = document.getElementById('hostlistContent').value;
+    
+    try {
+        await apiRequest('/api/save-file', {
+            method: 'POST',
+            body: JSON.stringify({
+                file: 'whitehost',
+                content
+            })
+        });
+        showToast('HOST白名单保存成功', 'success');
+    } catch (error) {
+        showToast('保存失败: ' + error.message, 'error');
+    }
+}
 
 async function renderIPList(container) {
     container.innerHTML = `

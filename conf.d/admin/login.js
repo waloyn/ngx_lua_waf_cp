@@ -33,6 +33,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         if (response.ok) {
             if (remember) {
                 localStorage.setItem('remember', 'true');
+                localStorage.setItem('username', username);
+                localStorage.setItem('password', password);
+            } else {
+                localStorage.removeItem('remember');
+                localStorage.removeItem('username');
+                localStorage.removeItem('password');
             }
             showToast('登录成功', 'success');
             setTimeout(() => {
@@ -59,4 +65,13 @@ async function checkAuth() {
     }
 }
 
+async function checkRemember() {
+    const remember = localStorage.getItem('remember') || 'false';
+    if (remember == 'true'){
+        document.getElementById('username').value = localStorage.getItem('username');
+        document.getElementById('password').value = localStorage.getItem('password');
+        document.getElementById('remember').checked = true;
+    }
+}
+checkRemember();
 checkAuth();

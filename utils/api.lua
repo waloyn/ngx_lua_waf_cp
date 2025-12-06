@@ -284,12 +284,20 @@ end
 function _M.switchRule(ruleFile, enabled)
     -- 获取规则名称（去掉.lua后缀）
     local ruleName = ruleFile:match("(.+)%.lua$")
-    if not ruleName then return false end
+    if not ruleName then 
+        ngx.log(ngx.ERR, "Invalid rule file name: ", ruleFile)
+        return false 
+    end
+    
+    ngx.log(ngx.INFO, "Switching rule: ", ruleName, " to ", enabled and "on" or "off")
     
     -- 读取waf.conf文件
     local wafConfPath = CURRENT_PATH .. "conf.d/waf.conf"
     local file = io.open(wafConfPath, "r")
-    if not file then return false end
+    if not file then 
+        ngx.log(ngx.ERR, "Failed to open waf.conf for reading")
+        return false 
+    end
     
     local content = file:read("*a")
     file:close()
@@ -298,16 +306,43 @@ function _M.switchRule(ruleFile, enabled)
     local ruleKey = "exp_" .. ruleName
     local newValue = enabled and "\"on\"" or "\"off\""
     
-    -- 替换规则状态
-    local pattern = "(" .. ruleKey .. ")%s*=%s*\"[^\"]*\""
-    local newContent = string.gsub(content, pattern, ruleKey .. " = " .. newValue)
+    ngx.log(ngx.INFO, "Looking for config key: ", ruleKey)
+    
+    -- 替换规则状态 - 支持多种格式
+    -- 格式1: exp_sqli = "on"
+    -- 格式2: exp_sqli="on"
+    -- 格式3: exp_sqli = "off"
+    local pattern = "(" .. ruleKey .. ")%s*=%s*[\"']?[^\"'\n]*[\"']?"
+    local count = 0
+    local newContent = string.gsub(content, pattern, function(match)
+        count = count + 1
+        return ruleKey .. " = " .. newValue
+    end)
+    
+    if count == 0 then
+        ngx.log(ngx.WARN, "Config key not found: ", ruleKey, ", appending to file")
+        -- 如果没找到，追加到文件末尾
+        newContent = content .. "\n" .. ruleKey .. " = " .. newValue .. "\n"
+    else
+        ngx.log(ngx.INFO, "Updated ", count, " occurrence(s) of ", ruleKey)
+    end
     
     -- 写回文件
     file = io.open(wafConfPath, "w")
-    if not file then return false end
+    if not file then 
+        ngx.log(ngx.ERR, "Failed to open waf.conf for writing")
+        return false 
+    end
     
     file:write(newContent)
     file:close()
+    
+    ngx.log(ngx.INFO, "Successfully updated rule status: ", ruleName)
+    
+    -- 更新全局配置（可选，需要重载才能生效）
+    if WAF_CONFIG then
+        WAF_CONFIG[ruleKey] = enabled and "on" or "off"
+    end
     
     return true
 end
