@@ -1,6 +1,34 @@
 ---@diagnostic disable: need-check-nil
 local localCache = require "cache"
 local localCount = require "count"
+
+-- 缓存 403 页面内容（模块级缓存，只读取一次）
+local cached403Content = nil
+local function get403Content()
+    if cached403Content then
+        return cached403Content
+    end
+    local file, err = io.open(CURRENT_PATH .. "conf.d/403.html", "r")
+    if not file then
+        ngx.log(ngx.ERR, "Failed to open 403.html: ", err)
+        return "<html><body><h1>403 Forbidden</h1></body></html>"
+    end
+    cached403Content = file:read("*all")
+    file:close()
+    return cached403Content
+end
+
+-- 将列表转换为 hash table 以提高查找效率
+local function listToSet(list)
+    local set = {}
+    if list then
+        for _, v in ipairs(list) do
+            set[v] = true
+        end
+    end
+    return set
+end
+
 local Waf = {}
 Waf.__index = Waf
 
@@ -25,44 +53,30 @@ function Waf:new()
         block_time = tonumber(WAF_CONFIG["block_time"]) or 600,
         block_timeout = tonumber(WAF_CONFIG["block_timeout"]) or 600,
         cache = localCache:new(),
-        count = localCount:new()
+        count = localCount:new(),
+        -- 预转换为 hash table 提高查找效率
+        whiteIpSet = listToSet(WHITE_IPS),
+        whiteHostSet = listToSet(WHITE_HOST),
+        blackIpSet = listToSet(BLACK_IPS)
     }
     setmetatable(instance, self)
     return instance
 end
 
-function Waf:isInTable(table, value)
-    for _, v in ipairs(table) do
-        if v == value then
-            return true
-        end
-    end
-    return false
-end
-
 function Waf:isWhiteIp()
-    if self:isInTable(WHITE_IPS,self.ip) then
-        return true
-    end
-    return false
+    return self.whiteIpSet[self.ip] == true
 end
 
 function Waf:isWhiteHost()
-    if self:isInTable(WHITE_HOST,self.host) then
-        return true
-    end
-    return false
+    return self.whiteHostSet[self.host] == true
 end
 
 function Waf:isBlackIp()
-    if self:isInTable(BLACK_IPS,self.ip) then
-        return true
-    end
-    return false
+    return self.blackIpSet[self.ip] == true
 end
 
 function Waf:isBlockedIp()
-    local value, err = self.cache:cacheGet(self.key_block)
+    local value = self.cache:cacheGet(self.key_block)
     if value then
         return true
     end
@@ -71,9 +85,7 @@ end
 
 function Waf:ret403(msg)
     self.count:addReqDenyCount()
-    local file = io.open(CURRENT_PATH .. "conf.d/403.html", "r")
-    local content = file:read("*all")
-    file:close()
+    local content = get403Content()
 
     ngx.header.content_type = "text/html"
     ngx.status = ngx.HTTP_FORBIDDEN
@@ -136,18 +148,17 @@ function Waf:inAttack(rule, body, level, desc, possibly)
     end
 
     -- 连续攻击封禁IP
-    local attackCount, err = tonumber(self.cache:cacheGet(self.key_attack_count) or 0)
+    local attackCount = tonumber(self.cache:cacheGet(self.key_attack_count) or 0)
     ngx.log(ngx.INFO, self.ip, " attackCount: ", attackCount)
     if attackCount > 0 then
         -- 只要之前有一次攻击，并且被检测到存在攻击行为，就会封禁IP
-        self:blockIp(attackCount)
+        self:blockIp(attackCount + 1)
         return true
     end
-    attackCount = attackCount + 1
+
     -- 置信度高的攻击直接封禁IP
-    local total = possibly
-    local value, err = tonumber(self.cache:cacheGet(self.key_possibly) or 0)
-    total = possibly + value
+    local prevPossibly = tonumber(self.cache:cacheGet(self.key_possibly) or 0)
+    local total = possibly + prevPossibly
 
     ngx.log(ngx.INFO, self.ip, " possibly: ", total)
 
@@ -157,12 +168,12 @@ function Waf:inAttack(rule, body, level, desc, possibly)
     end
 
     -- 攻击次数超过阈值，封禁IP
-    value = tonumber(self.cache:cacheGet(self.key_attack) or 1)
-    self.cache:cacheSet(self.key_attack, value + 1, self.block_time)
-    ngx.log(ngx.INFO, self.ip, " attack: ", value)
+    local attackValue = tonumber(self.cache:cacheGet(self.key_attack) or 1)
+    self.cache:cacheSet(self.key_attack, attackValue + 1, self.block_time)
+    ngx.log(ngx.INFO, self.ip, " attack: ", attackValue)
 
-    if value > self.block_count then
-        self:blockIp(attackCount)
+    if attackValue > self.block_count then
+        self:blockIp(1)
         return true
     end
     return false
@@ -235,13 +246,11 @@ function Waf:UnEscapeUri(uri, max_attempts)
 end
 
 function Waf:trim(s)
-    ngx.log(ngx.INFO, "Trim: ", s)
     return s:match("^%s*(.-)%s*$")
 end
 
 function Waf:attack()
     local max_decode_count = tonumber(WAF_CONFIG["decode_max_count"] or 10)
-    local method = ngx.req.get_method()
     local uri = ngx.var.request_uri
     local checkData = {}
 
@@ -268,12 +277,11 @@ function Waf:attack()
     for _, data in ipairs(checkData) do
         if data == nil then
             ngx.log(ngx.INFO, "Attack detected: ", "Malicious encoding")
-            if self:inAttack("Malicious encoding", "Malicious encoding", "low", "Malicious encoding", self.possibly_count) then
-                self:ret403("Malicious encoding")
-                return
-            end
+            self:inAttack("Malicious encoding", "Malicious encoding", "low", "Malicious encoding", self.possibly_count)
+            self:ret403("Malicious encoding")
+            return
         else
-            for key, rule in pairs(RULE_FILES) do
+            for _, rule in pairs(RULE_FILES) do
                 for _, patternItem in pairs(rule.rules) do
                     local positions = {}
 
@@ -289,25 +297,17 @@ function Waf:attack()
                         if data:sub(1, #p) == p then
                             local regex = string.lower(patternItem.pattern):match("^%s*(.-)%s*$")
                             if ngx.re.match(data, regex, "isjo") then
-                                if self:inAttack(rule.name .. " - " .. p .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence) then
-                                    if WAF_CONFIG["debug"] == "on" then
-                                        self:ret403("Attack detected,Debug msg: " ..
-                                            rule.name ..
-                                            " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
-                                    else
-                                        self:ret403("Attack detected.")
-                                    end
-                                    return
+                                -- 记录攻击并判断是否需要封禁
+                                self:inAttack(rule.name .. " - " .. p .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
+                                -- 无论是否封禁，检测到攻击都返回 403
+                                if WAF_CONFIG["debug"] == "on" then
+                                    self:ret403("Attack detected,Debug msg: " ..
+                                        rule.name ..
+                                        " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
                                 else
-                                    if WAF_CONFIG["debug"] == "on" then
-                                        self:ret403("Attack detected,Debug msg: " ..
-                                            rule.name ..
-                                            " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
-                                    else
-                                        self:ret403("Attack detected.")
-                                    end
-                                    return
+                                    self:ret403("Attack detected.")
                                 end
+                                return
                             end
                         end
                     end
