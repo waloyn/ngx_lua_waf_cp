@@ -371,6 +371,7 @@ end
 
 -- 获取系统日志
 function _M.getLogs(host, date, limit)
+    local ipUtil = require("ip")
     local wafLogsPath = CURRENT_PATH .. "../logs/waf/"
     local file = io.open(wafLogsPath..date.."/"..host..".log", "r")
     if file then
@@ -379,6 +380,12 @@ function _M.getLogs(host, date, limit)
             local line = file:read("*l")
             if not line then
                 break
+            end
+            -- 解析日志行，添加 IP 地区信息
+            local ok, logData = pcall(cjson.decode, line)
+            if ok and logData and logData.ip then
+                logData.ip_location = ipUtil.getIPLocation(logData.ip)
+                line = cjson.encode(logData)
             end
             table.insert(content, line)
         end

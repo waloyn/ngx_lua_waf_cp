@@ -11,6 +11,10 @@ local sub = string.sub
 local ngxmatch = ngx.re.match
 
 local insert = table.insert
+
+-- MaxMind GeoIP2 数据库实例
+local geo = nil
+local geo_init_tried = false
  -- 去除字符串两端空白字符的 trim 函数
  local function trim(s)
     return (s:gsub("^%s*(.-)%s*$", "%1"))
@@ -101,6 +105,80 @@ function _M.parseCidr(cidr)
         table.insert(ips,  _M.number2ip(start_ip + i))
     end
     return ips
+end
+
+-- 初始化 GeoIP2 数据库
+local function initGeoIP()
+    if geo_init_tried then
+        return geo
+    end
+    geo_init_tried = true
+    
+    local ok, maxminddb = pcall(require, "resty.maxminddb")
+    if not ok then
+        ngx.log(ngx.WARN, "lua-resty-maxminddb not installed, IP geolocation disabled")
+        return nil
+    end
+    
+    -- 检查是否已经初始化
+    if not maxminddb.initted() then
+        local mmdb_path = CURRENT_PATH .. "conf.d/GeoLite2-City.mmdb"
+        maxminddb.init(mmdb_path)
+    end
+    
+    if not maxminddb.initted() then
+        ngx.log(ngx.WARN, "Failed to init GeoLite2-City.mmdb")
+        return nil
+    end
+    
+    geo = maxminddb
+    ngx.log(ngx.INFO, "GeoIP2 database loaded successfully")
+    return geo
+end
+
+-- 根据 IP 获取国家/地区信息
+function _M.getIPLocation(ip)
+    if not ip or ip == "" or ip == "unknown" then
+        return "未知"
+    end
+    
+    -- 内网 IP 直接返回
+    if _M.isPrivateIP(ip) then
+        return "内网IP"
+    end
+    
+    local db = initGeoIP()
+    if not db then
+        return "未知"
+    end
+    
+    -- 使用 maxminddb.lookup(ip) 查询
+    local ok, res, err = pcall(function()
+        return db.lookup(ip)
+    end)
+    
+    if not ok or not res then
+        return "未知"
+    end
+
+    -- 尝试获取中文国家名，如果没有则使用英文
+    local country_name = nil
+    if res.country and res.country.names then
+        country_name = res.country.names["zh-CN"] or res.country.names["en"]
+    end
+    -- 尝试获取中文地区名，如果没有则使用英文
+    local region_name = nil
+    if res.city and res.city.names then
+        region_name = res.city.names["zh-CN"] or res.city.names["en"]
+    end    
+    if region_name then
+        if country_name then
+            country_name = country_name .. "-" .. region_name
+        else
+            country_name = region_name
+        end
+    end
+    return country_name or "未知"
 end
 
 return _M

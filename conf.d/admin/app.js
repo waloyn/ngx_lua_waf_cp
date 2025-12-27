@@ -1058,6 +1058,7 @@ async function renderLogs(container) {
                             <tr>
                                 <th>时间</th>
                                 <th>IP</th>
+                                <th>IP地区</th>
                                 <th>攻击类型</th>
                                 <th>请求方法</th>
                                 <th>URI</th>
@@ -1065,7 +1066,7 @@ async function renderLogs(container) {
                             </tr>
                         </thead>
                         <tbody id="logsTableBody">
-                            <tr><td colspan="6" style="text-align: center;">请选择查询条件</td></tr>
+                            <tr><td colspan="7" style="text-align: center;">请选择查询条件</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1095,7 +1096,7 @@ async function loadLogs() {
         }
         
         if (!logs || logs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">暂无日志</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">暂无日志</td></tr>';
             return;
         }
         
@@ -1103,6 +1104,7 @@ async function loadLogs() {
             <tr>
                 <td>${formatDate(log.request_time)}</td>
                 <td>${log.ip}</td>
+                <td>${log.ip_location || '未知'}</td>
                 <td><span class="badge badge-danger">${log.attack_type}</span></td>
                 <td>${log.http_method}</td>
                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${log.request_uri}</td>
