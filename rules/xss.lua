@@ -5,37 +5,37 @@ local _M = {
     position = "uri,body",
     rules = {
       {
-        pattern = [[ <script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script> ]],
+        pattern = [[ <script\b[^>]*>[\s\S]*?</script> ]],
         name = "Script Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe> ]],
+        pattern = [[ <iframe\b[^>]*>[\s\S]*?</iframe> ]],
         name = "Iframe Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object> ]],
+        pattern = [[ <object\b[^>]*>[\s\S]*?</object> ]],
         name = "Object Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <embed\b[^<]*(?:(?!<\/embed>)<[^<]*)*<\/embed> ]],
+        pattern = [[ <embed\b[^>]*>[\s\S]*?</embed> ]],
         name = "Embed Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style> ]],
+        pattern = [[ <style\b[^>]*>[\s\S]*?</style> ]],
         name = "Style Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <link\b[^<]*(?:(?!<\/link>)<[^<]*)*<\/link> ]],
+        pattern = [[ <link\b[^>]*(?:href|src)\s*=[\s\S]*?> ]],
         name = "Link Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ \bjavascript:[^<]+ ]],
+        pattern = [[ \bjavascript:[^\s<>"']+ ]],
         name = "Javascript URI",
         confidence = 3
       },
@@ -50,17 +50,17 @@ local _M = {
         confidence = 2
       },
       {
-        pattern = [[ <.+(?<![a-zA-Z0-9])on\w+= ]],
+        pattern =  [[(?i)<[a-zA-Z/!][^>]*[\s/]+on[a-z]+\s*=]],
         name = "Event Handler Injection",
         confidence = 3
       },
       {
-        pattern = [[ <(div|a|img)\b[\s\S]*>]],
-        name = "HTML Tag Injection",
+        pattern = [[ <(div|a|img)\b[^>]*\s+on[a-z]+\s*=[\s\S]*?>]],
+        name = "HTML Tag with Event Handler",
         confidence = 3
       },
       {
-        pattern = [[ href(.+)javascript: ]],
+        pattern = [[ href\s*=\s*["']?javascript: ]],
         name = "Encoded JavaScript URL",
         confidence = 3
       }

@@ -5,12 +5,12 @@ local _M = {
   position = "uri,body,cookie",
   rules = {
     {
-      pattern = [[ select\s+.*\s+from\s+.* ]],
+      pattern = [[ select\s+[^\s]+.*?\s+from\s+\S+ ]],
       name = "Select-From Statement",
       confidence = 3
     },
     {
-      pattern = [[ select\s+.*\s+limit\s+.* ]],
+      pattern = [[ select\s+[^\s]+.*?\s+limit\s+\d+ ]],
       name = "Select-Limit Statement",
       confidence = 3
     },
@@ -25,7 +25,7 @@ local _M = {
       confidence = 3
     },
     {
-      pattern = [[ benchmark\s*\(\s*\d+\s*,\s*.*\s*\) ]],
+      pattern = [[ benchmark\s*\(\s*\d+\s*,\s*[^)]+\) ]],
       name = "Benchmark Function",
       confidence = 3
     },
@@ -35,29 +35,29 @@ local _M = {
       confidence = 3
     },
     {
-      pattern = [[ INTO\s+(?:dump|out)file\s+.* ]],
+      pattern = [[ INTO\s+(?:dump|out)file\s+[\S]+ ]],
       name = "Into Outfile Statement",
       confidence = 3
     },
     {
       pattern = [[ GROUP\s+BY]],
       name = "Group By Statement",
-      confidence = 3
+      confidence = 1
     },
     {
-      pattern = [[ load_file\s*\(\s*.*\s*\) ]],
+      pattern = [[ load_file\s*\(\s*[^)]+\) ]],
       name = "Load File Function",
       confidence = 3
     },
     {
-      pattern = [[ (?:\sor\s|\sand\s).*=.* ]],
+      pattern = [[ (?:\sor\s|\sand\s)[\w]+\s*=\s*[\w'"]+  ]],
       name = "Boolean Logic SQL Injection",
       confidence = 2
     },
     {
       pattern = [[ (?:\sunion\s|\sselect\s|\sinsert\s|\supdate\s|\sdelete\s|\sdrop\s|\salter\s) ]],
       name = "SQL Keywords",
-      confidence = 2
+      confidence = 1
     },
 
   }

@@ -16,7 +16,7 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[\{\{.*?\}\}.*?\{\%.*?\%\}|\{\%.*?\%\}.*?\{\{.*?\}\}]],
+            pattern = [[\{\{[^\r\n]*?\}\}[^\r\n]*?\{\%[^\r\n]*?\%\}|\{\%[^\r\n]*?\%\}[^\r\n]*?\{\{[^\r\n]*?\}\}]],
             name = "Jinja2 Mixed Syntax",
             confidence = 2
         },
@@ -61,7 +61,7 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[\$\{T\s*\(\s*(?:java\.lang\.|org\.springframework\.)|\__\$\{.*?\}__]],
+            pattern = [[\$\{T\s*\(\s*(?:java\.lang\.|org\.springframework\.)|\__\$\{[^}]{1,100}\}__]],
             name = "Thymeleaf SpEL Injection",
             confidence = 3
         },
@@ -79,9 +79,9 @@ local _M = {
         },
         -- Handlebars/Mustache
         {
-            pattern = [[\{\{\{.*?\}\}\}|\{\{(?:#|\/|>|!|else|unless|with|lookup|log)\s*]],
+            pattern = [[\{\{\{[^}]*?\}\}\}|\{\{(?:#|\/|>|!|else|unless|with|lookup|log)\s*]],
             name = "Handlebars/Mustache Syntax",
-            confidence = 2
+            confidence = 1
         },
         -- ERB (Ruby)
         {

@@ -65,7 +65,7 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[<\?(?:php|=)|<\%(?:@|=)?|<%.*%>]],
+            pattern = [[<?(?:php|=)|<%(?:@|=)?|<%[^>]{1,100}%>]],
             name = "Embedded Script Tags in Upload",
             confidence = 2
         }

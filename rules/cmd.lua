@@ -5,39 +5,39 @@ local _M = {
     position = "uri,body",
     rules = {
         {
-            pattern = [[(exec|system|passthru|shell_exec|proc_open|popen)]],
+            pattern = [[(exec|system|passthru|shell_exec|proc_open|popen)\s*\(]],
             name = "PHP Functions",
             confidence = 3
         },
         {
-            pattern = [[(os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run|eval|exec)]],
+            pattern = [[(os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run)\s*\(|\beval\s*\(|\bexec\s*\(]],
             name = "Python Functions",
             confidence = 3
         },
         {
-            pattern = [[(system|exec|popen|spawn|IO\.popen|IO\.sysopen|eval)]],
+            pattern = [[(system|exec|popen|spawn|IO\.popen|IO\.sysopen)\s*\(|\beval\s*\(]],
             name = "Ruby Methods",
             confidence = 3
         },
         {
-            pattern = [[(system|exec|open(?!id)|eval)]],
+            pattern = [[\b(system|exec)\s*\(|\bopen\s*\((?!.*\bid\b)|\beval\s*[\{\(]]],
             name = "Perl Functions",
             confidence = 3
         },
         {
-            pattern = [[(Runtime\.getRuntime|ProcessBuilder)]],
+            pattern = [[Runtime\.getRuntime\s*\(|new\s+ProcessBuilder\s*\(]],
             name = "Java Methods",
             confidence = 3
         },
         {
-            pattern = "eval",
+            pattern = [[\beval\s*[\(\{]]],
             name = "General Eval Functions",
-            confidence = 3
+            confidence = 2
         },
         {
             pattern =
-            [[(exec|system|passthru|shell_exec|proc_open|popen|os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run|eval|exec|Runtime\.getRuntime|ProcessBuilder)]],
-            name = "Non-alphanumeric Characters Around Command Execution Functions",
+            [[(exec|system|passthru|shell_exec|proc_open|popen|os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run|Runtime\.getRuntime|ProcessBuilder)\s*[\(]]],
+            name = "Command Execution Function Calls",
             confidence = 3
         },
         {
@@ -46,9 +46,9 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[(?:^|[^a-zA-Z0-9_])(cat|whoami|uname|netstat|ifconfig|wget|curl|chmod|chown|find|grep|echo|kill)(?=[^a-zA-Z0-9_]|$)]],
+            pattern = [[(?:^|[^a-zA-Z0-9_])(cat|whoami|uname|netstat|ifconfig|wget|curl|chmod|chown|find|grep|echo|kill)(?=[\s;|&`$<>(){}\[\]'"]|$)]],
             name = "Common Linux Commands",
-            confidence = 2
+            confidence = 1
         },
         {
             pattern = [[(/etc/passwd|/etc/shadow|/etc/hosts|/var/log/|/tmp/|/home/)]],
@@ -63,9 +63,9 @@ local _M = {
         },
         {
             pattern =
-            [[(?:^|[^a-zA-Z0-9_"])(?<!["'])(dir|type|whoami|systeminfo|tasklist|netstat|ipconfig|certutil|powershell|echo|findstr|ping|tracert|nslookup|net|netsh|wmic)(?!=)[\s\"'`}]?(?!\w)]],
-            name = "Common Windows Commands and Files",
-            confidence = 2
+            [[(?:^|[;|&`<>(){}\[\]\s])(dir|whoami|systeminfo|tasklist|ipconfig|certutil|powershell|findstr|tracert|nslookup|netsh|wmic)(?=[\s;|&`<>(){}\[\]'"]|$)]],
+            name = "Common Windows Commands",
+            confidence = 1
         }
     }
 }

@@ -8,7 +8,7 @@ local _M = {
         {
             pattern = [[\$(?:where|gt|gte|lt|lte|ne|in|nin|exists|type|mod|regex|text|all|size|elemMatch|meta|slice|comment|rand|natural|maxTimeMS|maxScan|explain)(?:\s*:|$)]],
             name = "MongoDB Operator Injection",
-            confidence = 3
+            confidence = 2
         },
         {
             pattern = [[(?:\$where\s*:\s*["']?function|\$where\s*:\s*["']?this\.)]],
@@ -63,11 +63,11 @@ local _M = {
             name = "CouchDB Special Endpoint",
             confidence = 2
         },
-        -- Elasticsearch 注入
+        -- Elasticsearch 注入，排除类似ico_search的正常业务
         {
-            pattern = [[(?:_search|_msearch|_bulk|_mapping|_settings|_analyze|_nodes|_cluster|_stats|_cat)]],
+            pattern = [[/(?:_search|_msearch|_bulk|_mapping|_settings|_analyze|_nodes|_cluster|_stats|_cat)(?:/|\?|$)]],
             name = "Elasticsearch API Endpoint",
-            confidence = 2
+            confidence = 1
         },
         {
             pattern = [[(?:"script"\s*:\s*\{|"inline"\s*:\s*"|"source"\s*:\s*")]],

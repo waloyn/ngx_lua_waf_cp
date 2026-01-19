@@ -20,7 +20,7 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[ "eyes\.sh ]],
+            pattern = [[ eyes\.sh ]],
             name = "Eyes.sh Domain",
             confidence = 2
         }

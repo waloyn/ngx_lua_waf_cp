@@ -7,7 +7,7 @@ local _M = {
         {
             pattern = [[ user-agent:\s*(?:go-http|curl|wget|python-requests|libwww-perl|httpclient|python-urllib|http_request|java|scrapy|php|node\.js|mechanize|axios|httpie|okhttp|lua-resty-http|Go-http-client|Jakarta|Apache-HttpClient|libcurl|python-httpx|python-tornado|guzzlehttp|httplib2|perseus|resty|simplepie|typhoeus|aiohttp|http\.client|http\.request|Net::HTTP|HTTPie|PycURL|Requests|httplib|Mechanize|Scrapy|LWP::Simple|RestClient|async-http-client|got/|ky/|superagent|undici)(?![a-zA-Z0-9]) ]],
             name = "HTTP Client Library",
-            confidence = 2
+            confidence = 1
         },
         {
             pattern = [[ user-agent:\s*(?:sqlmap|nikto|nmap|masscan|zmap|nessus|openvas|acunetix|burpsuite|owasp|zaproxy|arachni|w3af|skipfish|wapiti|vega|golismero|xray|nuclei|jaeles|httpx|subfinder|amass|dirsearch|ffuf|gobuster|feroxbuster|wfuzz|dirb|dirbuster)(?![a-zA-Z0-9]) ]],
