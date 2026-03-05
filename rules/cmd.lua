@@ -20,7 +20,7 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[\b(system|exec)\s*\(|\bopen\s*\((?!.*\bid\b)|\beval\s*[\{\(]]],
+            pattern = [[\b(system|exec)\s*\(|\bopen\s*\((?!.*\bid\b)|\beval\s*[\{\(]],
             name = "Perl Functions",
             confidence = 3
         },
@@ -30,13 +30,13 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[\beval\s*[\(\{]]],
+            pattern = [[\beval\s*[\(\{]],
             name = "General Eval Functions",
             confidence = 2
         },
         {
             pattern =
-            [[(exec|system|passthru|shell_exec|proc_open|popen|os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run|Runtime\.getRuntime|ProcessBuilder)\s*[\(]]],
+            [[(exec|system|passthru|shell_exec|proc_open|popen|os\.system|os\.popen|subprocess\.Popen|subprocess\.call|subprocess\.run|Runtime\.getRuntime|ProcessBuilder)\s*[\(]],
             name = "Command Execution Function Calls",
             confidence = 3
         },
