@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - WAF 管理后台</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 </head>
 <body class="login-page">
-    <div class="login-container">
+    <div id="app" class="login-container" v-cloak>
         <div class="login-card">
             <div class="login-header">
                 <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
@@ -24,35 +25,37 @@
                 <p>请登录以继续</p>
             </div>
 
-            <form id="loginForm" class="login-form">
+            <form @submit.prevent="handleLogin" class="login-form">
                 <div class="form-group">
                     <label for="username">用户名</label>
-                    <input type="text" id="username" name="username" required autocomplete="username" placeholder="请输入用户名">
+                    <input type="text" id="username" v-model="username" required autocomplete="username" placeholder="请输入用户名">
                 </div>
 
                 <div class="form-group">
                     <label for="password">密码</label>
-                    <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="请输入密码">
+                    <input type="password" id="password" v-model="password" required autocomplete="current-password" placeholder="请输入密码">
                 </div>
 
                 <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" id="remember" name="remember">
+                        <input type="checkbox" v-model="remember">
                         <span>记住我</span>
                     </label>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-block">登录</button>
+                <button type="submit" class="btn btn-primary btn-block" :disabled="isLoading">
+                    {{ isLoading ? '登录中...' : '登录' }}
+                </button>
             </form>
 
             <div class="login-footer">
                 <p>© 2024 WAF Management System</p>
             </div>
         </div>
-    </div>
 
-    <!-- Toast 通知 -->
-    <div id="toast" class="toast"></div>
+        <!-- Toast 通知 -->
+        <div :class="['toast', toast.type, { show: toast.show }]">{{ toast.message }}</div>
+    </div>
 
     <script src="login.js"></script>
 </body>

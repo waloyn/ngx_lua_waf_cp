@@ -1,77 +1,89 @@
-// Toast 通知
-function showToast(message, type = 'info') {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.className = `toast ${type}`;
-    
-    setTimeout(() => toast.classList.add('show'), 10);
-    
-    setTimeout(() => {
-        toast.classList.remove('show');
-    }, 3000);
-}
+const { createApp } = Vue;
 
-// 登录表单处理
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    const remember = document.getElementById('remember').checked;
-    
-    try {
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ username, password })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            if (remember) {
-                localStorage.setItem('remember', 'true');
-                localStorage.setItem('username', username);
-                localStorage.setItem('password', password);
-            } else {
-                localStorage.removeItem('remember');
-                localStorage.removeItem('username');
-                localStorage.removeItem('password');
+createApp({
+    data() {
+        return {
+            username: '',
+            password: '',
+            remember: false,
+            isLoading: false,
+            toast: {
+                show: false,
+                message: '',
+                type: 'info'
             }
-            showToast('登录成功', 'success');
+        }
+    },
+    methods: {
+        showToast(message, type = 'info') {
+            this.toast.message = message;
+            this.toast.type = type;
+            this.toast.show = true;
             setTimeout(() => {
-                window.location.href = 'index.html';
-            }, 500);
-        } else {
-            showToast(data.data?.message || '登录失败', 'error');
+                this.toast.show = false;
+            }, 3000);
+        },
+        async handleLogin() {
+            this.isLoading = true;
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        username: this.username, 
+                        password: this.password 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (this.remember) {
+                        localStorage.setItem('remember', 'true');
+                        localStorage.setItem('username', this.username);
+                        localStorage.setItem('password', this.password);
+                    } else {
+                        localStorage.removeItem('remember');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('password');
+                    }
+                    this.showToast('登录成功', 'success');
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 500);
+                } else {
+                    this.showToast(data.data?.message || '登录失败', 'error');
+                }
+            } catch (error) {
+                this.showToast('网络错误，请稍后重试', 'error');
+                console.error('Login error:', error);
+            } finally {
+                this.isLoading = false;
+            }
+        },
+        async checkAuth() {
+            try {
+                const response = await fetch('/api/stats');
+                if (response.ok) {
+                    window.location.href = 'index.html';
+                }
+            } catch (error) {
+                // 未登录，保持在登录页
+            }
+        },
+        checkRemember() {
+            const remember = localStorage.getItem('remember') === 'true';
+            if (remember) {
+                this.username = localStorage.getItem('username') || '';
+                this.password = localStorage.getItem('password') || '';
+                this.remember = true;
+            }
         }
-    } catch (error) {
-        showToast('网络错误，请稍后重试', 'error');
-        console.error('Login error:', error);
+    },
+    mounted() {
+        this.checkRemember();
+        this.checkAuth();
     }
-});
-
-// 检查是否已登录
-async function checkAuth() {
-    try {
-        const response = await fetch('/api/stats');
-        if (response.ok) {
-            window.location.href = 'index.html';
-        }
-    } catch (error) {
-        // 未登录，保持在登录页
-    }
-}
-
-async function checkRemember() {
-    const remember = localStorage.getItem('remember') || 'false';
-    if (remember == 'true'){
-        document.getElementById('username').value = localStorage.getItem('username');
-        document.getElementById('password').value = localStorage.getItem('password');
-        document.getElementById('remember').checked = true;
-    }
-}
-checkRemember();
-checkAuth();
+}).mount('#app');
