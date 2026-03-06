@@ -73,7 +73,7 @@ local _M = {
         },
         -- Go Text/HTML Template
         {
-            pattern = [[\{\{\s*(?:template|define|block|range|with|if|else|end|and|or|not|len|index|slice|printf|print|html|js|urlquery)\s+]],
+            pattern = [[\{\{\s*(?:template|define|block|range|with|printf|print|urlquery)\s+]],
             name = "Go Template Syntax",
             confidence = 2
         },
@@ -81,7 +81,7 @@ local _M = {
         {
             pattern = [[\{\{\{[^}]*?\}\}\}|\{\{(?:#|\/|>|!|else|unless|with|lookup|log)\s*]],
             name = "Handlebars/Mustache Syntax",
-            confidence = 1
+            confidence = 2
         },
         -- ERB (Ruby)
         {

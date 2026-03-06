@@ -7,12 +7,12 @@ local _M = {
     {
       pattern = [[ <!ENTITY\s+.+> ]],
       name = "Generic ENTITY Declaration",
-      confidence = 1
+      confidence = 2
     },
     {
       pattern = [[ <!DOCTYPE\s+.+\[ ]],
       name = "DOCTYPE Declaration",
-      confidence = 1
+      confidence = 2
     },
     {
       pattern = [[ <!ENTITY\s+.+\s+SYSTEM\s+['\"].+['\"]\s*> ]],

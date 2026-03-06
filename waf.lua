@@ -255,6 +255,11 @@ function Waf:attack()
     local checkData = {}
 
     uri = self:UnEscapeUri(uri, max_decode_count)
+    if uri == nil then
+        self:inAttack("Malicious encoding - URI", "", "high", "恶意编码攻击", self.possibly_count)
+        self:ret403("Malicious encoding detected.")
+        return
+    end
     table.insert(checkData, "uri: " .. uri)
     local headers = ngx.req.get_headers()
 
@@ -267,48 +272,48 @@ function Waf:attack()
             header = k .. ": " .. v
         end
         header = self:UnEscapeUri(header, max_decode_count)
+        if header == nil then
+            self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count)
+            self:ret403("Malicious encoding detected.")
+            return
+        end
         table.insert(checkData, header)
     end
 
     ngx.req.read_body()
     local body = ngx.req.get_body_data() or ""
-    body = self:UnEscapeUri(body, max_decode_count) or ""
+    body = self:UnEscapeUri(body, max_decode_count)
+    if body == nil then
+        self:inAttack("Malicious encoding - Body", "", "high", "恶意编码攻击", self.possibly_count)
+        self:ret403("Malicious encoding detected.")
+        return
+    end
     table.insert(checkData, "body: " .. body)
     for _, data in ipairs(checkData) do
-        if data == nil then
-            ngx.log(ngx.INFO, "Attack detected: ", "Malicious encoding")
-            self:inAttack("Malicious encoding", "Malicious encoding", "low", "Malicious encoding", self.possibly_count)
-            self:ret403("Malicious encoding")
-            return
-        else
-            for _, rule in pairs(RULE_FILES) do
-                for _, patternItem in pairs(rule.rules) do
-                    local positions = {}
+        for _, rule in pairs(RULE_FILES) do
+            for _, patternItem in pairs(rule.rules) do
+                local positions = {}
 
-                    -- 使用 string.gmatch 分割字符串
-                    for part in string.gmatch(rule.position, '([^,]+)') do
-                        table.insert(positions, part)
-                    end
+                -- 使用 string.gmatch 分割字符串
+                for part in string.gmatch(rule.position, '([^,]+)') do
+                    table.insert(positions, part)
+                end
 
-                    -- 现在 positions 是一个包含各部分的表
-                    -- 例如: positions = {"uri", "body", "cookie"}
-                    -- 在你的逻辑中使用分割后的部分
-                    for _, p in ipairs(positions) do
-                        if data:sub(1, #p) == p then
-                            local regex = string.lower(patternItem.pattern):match("^%s*(.-)%s*$")
-                            if ngx.re.match(data, regex, "isjo") then
-                                -- 记录攻击并判断是否需要封禁
-                                self:inAttack(rule.name .. " - " .. p .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
-                                -- 无论是否封禁，检测到攻击都返回 403
-                                if WAF_CONFIG["debug"] == "on" then
-                                    self:ret403("Attack detected,Debug msg: " ..
-                                        rule.name ..
-                                        " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
-                                else
-                                    self:ret403("Attack detected.")
-                                end
-                                return
+                for _, p in ipairs(positions) do
+                    if data:sub(1, #p) == p then
+                        local regex = patternItem.pattern:match("^%s*(.-)%s*$")
+                        if ngx.re.match(data, regex, "isjo") then
+                            -- 记录攻击并判断是否需要封禁
+                            self:inAttack(rule.name .. " - " .. p .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
+                            -- 无论是否封禁，检测到攻击都返回 403
+                            if WAF_CONFIG["debug"] == "on" then
+                                self:ret403("Attack detected,Debug msg: " ..
+                                    rule.name ..
+                                    " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
+                            else
+                                self:ret403("Attack detected.")
                             end
+                            return
                         end
                     end
                 end

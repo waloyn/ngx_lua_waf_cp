@@ -5,21 +5,30 @@ local _M = {
     position = "uri,body",
     rules = {
         {
-            pattern = [[\${jndi:(?:ldap|ldaps|rmi|dns|nis|nds|corba|iiop):]],
-            name = "Basic and Protocol Variants JNDI Injection",
+            pattern = [[\$\{jndi:(?:ldap|ldaps|rmi|dns|nis|nds|corba|iiop):]],
+            name = "Basic JNDI Injection",
             confidence = 3
         },
         {
-            pattern = [[\%24\%7Bjndi:(?:ldap|ldaps|rmi|dns|nis|nds|corba|iiop):]],
-            name = "URL Encoded JNDI Injection",
+            pattern = [[\$\{[^}]*\$\{.*?jndi:]],
+            name = "Nested Lookup JNDI Injection",
             confidence = 3
         },
         {
-            pattern = [[\${(.+)?j}\${(.+)?n}\${(.+)?d}\${(.+)?i}:]],
-            name = "Colon Prefixed Lowercase Function Injection",
+            pattern = [[\$\{(?:[^}]*:.*?)?j\}?\$\{(?:[^}]*:.*?)?n\}?\$\{(?:[^}]*:.*?)?d\}?\$\{(?:[^}]*:.*?)?i\}?:]],
+            name = "Split Character JNDI Injection",
             confidence = 3
         },
-
+        {
+            pattern = [[j\$\{[^}]*\}n\$\{[^}]*\}d\$\{[^}]*\}i\s*:]],
+            name = "Default Value Bypass JNDI Injection",
+            confidence = 3
+        },
+        {
+            pattern = [[\$\{(?:lower|upper|env|sys|java|date|bundle|ctx|main|marker|sd|log4j)[^}]*:.*?jndi]],
+            name = "Log4j Lookup Bypass JNDI Injection",
+            confidence = 3
+        },
     }
 }
 

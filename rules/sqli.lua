@@ -5,17 +5,17 @@ local _M = {
   position = "uri,body,cookie",
   rules = {
     {
-      pattern = [[ select\s+[^\s]+.*?\s+from\s+\S+ ]],
+      pattern = [[ select\s+\S+.*?\s+from\s+\S+ ]],
       name = "Select-From Statement",
       confidence = 3
     },
     {
-      pattern = [[ select\s+[^\s]+.*?\s+limit\s+\d+ ]],
+      pattern = [[ select\s+\S+.*?\s+limit\s+\d+ ]],
       name = "Select-Limit Statement",
       confidence = 3
     },
     {
-      pattern = [[ UNION\s+SELECT ]],
+      pattern = [[ UNION[\s/\*]+SELECT ]],
       name = "Union-Select Statement",
       confidence = 3
     },
@@ -35,14 +35,9 @@ local _M = {
       confidence = 3
     },
     {
-      pattern = [[ INTO\s+(?:dump|out)file\s+[\S]+ ]],
+      pattern = [[ INTO\s+(?:dump|out)file\s+\S+ ]],
       name = "Into Outfile Statement",
       confidence = 3
-    },
-    {
-      pattern = [[ GROUP\s+BY]],
-      name = "Group By Statement",
-      confidence = 1
     },
     {
       pattern = [[ load_file\s*\(\s*[^)]+\) ]],
@@ -57,9 +52,38 @@ local _M = {
     {
       pattern = [[ (?:\sunion\s|\sselect\s|\sinsert\s|\supdate\s|\sdelete\s|\sdrop\s|\salter\s) ]],
       name = "SQL Keywords",
-      confidence = 1
+      confidence = 2
     },
-
+    {
+      pattern = [[ ORDER\s+BY\s+\d+ ]],
+      name = "Order By Column Number Probe",
+      confidence = 2
+    },
+    {
+      pattern = [[ WAITFOR\s+DELAY\s+['"] ]],
+      name = "MSSQL Time-based Injection",
+      confidence = 3
+    },
+    {
+      pattern = [[ ['"]\s*(?:--|#|/\*) ]],
+      name = "SQL Comment Truncation",
+      confidence = 2
+    },
+    {
+      pattern = [[ HAVING\s+\d+\s*=\s*\d+ ]],
+      name = "Having Clause Injection",
+      confidence = 3
+    },
+    {
+      pattern = [[ IF\s*\(.*?,.*?(?:SLEEP|BENCHMARK)\s*\( ]],
+      name = "Conditional Time-based Injection",
+      confidence = 3
+    },
+    {
+      pattern = [[ pg_sleep\s*\(\s*\d+\s*\) ]],
+      name = "PostgreSQL Sleep Injection",
+      confidence = 3
+    },
   }
 }
 

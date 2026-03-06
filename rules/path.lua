@@ -12,31 +12,11 @@ local _M = {
     {
       pattern = [[ \.\./ ]],
       name = "Parent Directory Traversal (../)",
-      confidence = 1
+      confidence = 2
     },
     {
       pattern = [[ /\.\.\\|\\\.\./ ]],
       name = "Mixed Slash Traversal",
-      confidence = 3
-    },
-    {
-      pattern = [[ \.\.%2f|%2e%2e/|%2e%2e%2f ]],
-      name = "URL Encoded Traversal",
-      confidence = 3
-    },
-    {
-      pattern = [[ \.\.%5c|%2e%2e\\|%2e%2e%5c ]],
-      name = "URL Encoded Backslash Traversal",
-      confidence = 3
-    },
-    {
-      pattern = [[ (?:%252e%252e|%25252e%25252e)(?:%252f|%25252f|/) ]],
-      name = "Double URL Encoded Traversal",
-      confidence = 3
-    },
-    {
-      pattern = [[ \.\.%c0%af|\.\.%c1%9c|%c0%ae%c0%ae ]],
-      name = "UTF-8 Overlong Encoding Traversal",
       confidence = 3
     },
     {
@@ -50,7 +30,7 @@ local _M = {
       confidence = 3
     },
     {
-      pattern = [[ (?:c:|C:)(?:\\|%5c)(?:windows|winnt|boot\.ini|inetpub) ]],
+      pattern = [[ (?:c:|C:)(?:\\|/)(?:windows|winnt|boot\.ini|inetpub) ]],
       name = "Windows Sensitive Path Access",
       confidence = 3
     },

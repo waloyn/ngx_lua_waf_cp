@@ -2,25 +2,25 @@ local _M = {
     name = "XSS",
     desc = "XSS是一种常见的攻击手段，通过在输入框中输入JavaScript代码，获取用户的Cookie信息。",
     level = "medium",
-    position = "uri,body",
+    position = "uri,body,cookie",
     rules = {
       {
-        pattern = [[ <script\b[^>]*>[\s\S]*?</script> ]],
+        pattern = [[ <script\b[^>]*> ]],
         name = "Script Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <iframe\b[^>]*>[\s\S]*?</iframe> ]],
+        pattern = [[ <iframe\b[^>]*> ]],
         name = "Iframe Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <object\b[^>]*>[\s\S]*?</object> ]],
+        pattern = [[ <object\b[^>]*> ]],
         name = "Object Tag Injection",
         confidence = 3
       },
       {
-        pattern = [[ <embed\b[^>]*>[\s\S]*?</embed> ]],
+        pattern = [[ <embed\b[^>]*> ]],
         name = "Embed Tag Injection",
         confidence = 3
       },
@@ -50,20 +50,35 @@ local _M = {
         confidence = 2
       },
       {
-        pattern =  [[(?i)<[a-zA-Z/!][^>]*[\s/]+on[a-z]+\s*=]],
+        pattern = [[ <[a-zA-Z/!][^>]*[\s/]+on[a-z]+\s*= ]],
         name = "Event Handler Injection",
         confidence = 3
       },
       {
-        pattern = [[ <(div|a|img)\b[^>]*\s+on[a-z]+\s*=[\s\S]*?>]],
-        name = "HTML Tag with Event Handler",
+        pattern = [[ href\s*=\s*["']?javascript: ]],
+        name = "JavaScript URL in href",
         confidence = 3
       },
       {
-        pattern = [[ href\s*=\s*["']?javascript: ]],
-        name = "Encoded JavaScript URL",
+        pattern = [[ <svg\b[^>]*> ]],
+        name = "SVG Tag Injection",
         confidence = 3
-      }
+      },
+      {
+        pattern = [[ <math\b[^>]*> ]],
+        name = "MathML Tag Injection",
+        confidence = 2
+      },
+      {
+        pattern = [[ <base\b[^>]*href\s*= ]],
+        name = "Base Tag Hijacking",
+        confidence = 3
+      },
+      {
+        pattern = [[ <meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*url\s*= ]],
+        name = "Meta Refresh Redirect",
+        confidence = 3
+      },
     }
   }
 
