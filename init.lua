@@ -147,6 +147,10 @@ function load_debug()
 end
 
 ngx.log(ngx.INFO, "WAF init...... ")
+
+-- 初始化随机数种子
+math.randomseed(ngx.now() * 1000 + ngx.worker.pid())
+
 ngx.log(ngx.INFO, "WAF loading config......")
 -- 执行初始化函数
 load_config()

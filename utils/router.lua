@@ -3,6 +3,18 @@ local cjson = require "cjson"
 local api = require "api"
 local auth = require "auth"
 
+-- 构建带安全属性的Cookie字符串
+local function buildCookieStr(name, value, options)
+    local cookie = name .. "=" .. value .. "; path=/; HttpOnly; SameSite=Strict"
+    if ngx.var.scheme == "https" then
+        cookie = cookie .. "; Secure"
+    end
+    if options and options.expires then
+        cookie = cookie .. "; expires=" .. options.expires
+    end
+    return cookie
+end
+
 -- 响应JSON数据
 local function response(data, code)
     code = code or 200
@@ -47,10 +59,10 @@ function _M.handle()
             response({message = "Invalid request"}, 400)
             return
         end
-        local session_id = auth.authenticate(data.username, data.password)
+        local session_id, csrf_token = auth.authenticate(data.username, data.password)
         if session_id then
-            ngx.header["Set-Cookie"] = "session_id=" .. session_id .. "; path=/; HttpOnly"
-            response({message = "Login successful"})
+            ngx.header["Set-Cookie"] = buildCookieStr("session_id", session_id)
+            response({message = "Login successful", csrf_token = csrf_token})
         else
             response({message = "Invalid credentials"}, 401)
         end
@@ -61,7 +73,7 @@ function _M.handle()
     if uri == "/api/logout" and method == "POST" then
         local session_id = ngx.var.cookie_session_id
         auth.logout(session_id)
-        ngx.header["Set-Cookie"] = "session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+        ngx.header["Set-Cookie"] = buildCookieStr("session_id", "", {expires = "Thu, 01 Jan 1970 00:00:00 GMT"})
         response({message = "Logout successful"})
         return
     end
@@ -70,6 +82,13 @@ function _M.handle()
     if string.match(uri, "^/api/") and uri ~= "/api/login" then
         if not checkAuth() then
             return
+        end
+        -- CSRF 验证：仅对写操作
+        if method == "POST" or method == "PUT" or method == "DELETE" then
+            if not auth.validateCsrf() then
+                response({message = "CSRF token invalid"}, 403)
+                return
+            end
         end
     end
 
@@ -218,13 +237,8 @@ function _M.handle()
         response({message = "Not Found"}, 404)
     end
 
-    -- 刷新会话时间
-    if ngx.var.cookie_session_id then
-        local username = ngx.shared.sessions:get(ngx.var.cookie_session_id)
-        if username then
-            ngx.shared.sessions:set(ngx.var.cookie_session_id, username, 3600)
-        end
-    end
+    -- 刷新会话和CSRF Token过期时间
+    auth.refreshSession()
 end
 
 return _M

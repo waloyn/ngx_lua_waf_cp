@@ -109,7 +109,7 @@ function _M.reloadConfig()
         require("init")
 
         -- 重新加载规则模块
-        local rules = {"bot", "cmd", "dns", "ldap", "path", "sensitive", "spring", "sqli", "ssrf", "xss", "xxe"}
+        local rules = {"backup", "bot", "cmd", "deserialize", "dns", "ldap", "nosql", "path", "sensitive", "spring", "sqli", "ssrf", "ssti", "upload", "xss", "xxe"}
         for _, rule in ipairs(rules) do
             package.loaded["rules." .. rule] = nil
             require("rules." .. rule)

@@ -40,6 +40,11 @@ createApp({
                 const data = await response.json();
                 
                 if (response.ok) {
+                    // 保存 CSRF Token
+                    const csrfToken = data.data?.csrf_token;
+                    if (csrfToken) {
+                        sessionStorage.setItem('csrf_token', csrfToken);
+                    }
                     if (this.remember) {
                         localStorage.setItem('remember', 'true');
                         localStorage.setItem('username', this.username);

@@ -58,18 +58,28 @@ createApp({
         async apiRequest(url, options = {}, silent = false) {
             try {
                 if (!silent) this.isLoading = true;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+                // 写操作自动携带 CSRF Token
+                const method = (options.method || 'GET').toUpperCase();
+                if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+                    const csrfToken = sessionStorage.getItem('csrf_token');
+                    if (csrfToken) {
+                        headers['X-CSRF-Token'] = csrfToken;
+                    }
+                }
                 const response = await fetch(url, {
                     ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...options.headers
-                    }
+                    headers: headers
                 });
                 
                 const data = await response.json();
                 
                 if (!response.ok) {
                     if (response.status === 401) {
+                        sessionStorage.removeItem('csrf_token');
                         window.location.href = 'login.html';
                         return null;
                     }
@@ -428,6 +438,7 @@ createApp({
             if (!confirm('确定要退出登录吗?')) return;
             try {
                 await this.apiRequest('/api/logout', { method: 'POST' });
+                sessionStorage.removeItem('csrf_token');
                 window.location.href = 'login.html';
             } catch (error) {
                 this.showToast('退出失败', 'error');
