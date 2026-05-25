@@ -21,13 +21,15 @@
 │   ├── whitehost        # 域名白名单
 │   └── 403.html         # 拦截页面
 ├── utils/
-│   ├── cache.lua        # 缓存管理
+│   ├── cache.lua        # 缓存管理 (滑动窗口 incr+expire)
 │   ├── count.lua        # 统计计数
-│   ├── ip.lua           # IP处理工具
-│   ├── logger.lua       # 日志记录
+│   ├── decoder.lua      # 载荷解码 (递归 URL + HTML 实体)
+│   ├── ip.lua           # IP处理工具 / GeoIP2
+│   ├── logger.lua       # 日志记录 (host 实例复用 + 异步)
+│   ├── localFile.lua    # 文件读写
 │   ├── router.lua       # API路由
 │   ├── api.lua          # API接口
-│   └── auth.lua         # 认证管理
+│   └── auth.lua         # 认证管理 (会话 + CSRF Token)
 └── rules/
     ├── sqli.lua         # SQL注入规则
     ├── xss.lua          # XSS攻击规则
@@ -177,21 +179,20 @@ block_timeout = 600       # IP封禁时长(秒)
 
 ### 1. 多层URL解码
 
-防止攻击者通过多次编码绕过检测:
+防止攻击者通过多次编码绕过检测。归一化逻辑独立在 `utils/decoder.lua`：
 
 ```lua
-function Waf:UnEscapeUri(uri, max_attempts)
-    -- URL解码
-    while decoded_uri ~= prev_decoded_uri and attempts < max_attempts do
-        decoded_uri = ngx.unescape_uri(decoded_uri)
-    end
-    
-    -- HTML实体解码
-    while decoded_uri_2 ~= prev_decoded_uri and attempts < max_attempts do
-        decoded_uri_2 = ngx.re.gsub(decoded_uri_2, "&#(\\d+);", ...)
-    end
-end
+-- waf.lua 在 access 阶段对 uri/header/body 调用
+local decoder = require "decoder"
+local normalized = decoder.unescape(input, max_decode_count)
+-- 内部两阶段递归至稳定或达上限：
+-- 1) URL 解码  : ngx.unescape_uri 反复展开 %XX、%25XX 等多层编码
+-- 2) HTML 实体: 支持 &#NNN;(十进制) / &#xNN;(十六进制) / &name;(命名实体)
+--    >255 码点编为 UTF-8；递归超过 decode_max_count 视为恶意嵌套，返回 nil → 拦截
 ```
+
+注意：因为引擎已递归解码标准 `%XX`,规则中**不应**再写 `%2f`、`%c0%af` 这类字面百分编码;
+非标准 IIS Unicode 编码(`%u2215` 等)和解码后字节(`\xc0\xaf`)可以正常匹配。
 
 ### 2. 规则匹配引擎
 
@@ -201,7 +202,7 @@ end
     name = "规则名称",
     desc = "规则描述",
     level = "high/medium/low",
-    position = "uri,body,cookie",  -- 检测位置
+    position = "uri,body,cookie",  -- 检测位置(CSV)
     rules = {
         {
             pattern = "正则表达式",
@@ -212,11 +213,20 @@ end
 }
 ```
 
+#### 数据格式与 position 约定
+- `position` 合法取值: **`uri` / `body` / `cookie` / `user-agent`**, 由 `init.lua` 白名单校验,未知值记 WARN。
+- 引擎在 access 阶段把待检测数据拼为带前缀的字符串入 `checkData`:
+  - `"uri: <decoded_uri>"`
+  - `"body: <decoded_body>"`
+  - `"<header_name>: <decoded_value>"`(逐 header 值入,避免 join 后跨值误命中)
+- 匹配前先用 `data:sub(1, #p) == p` 做前缀过滤,命中再走 `ngx.re.match(data, pattern, "isjo")`。
+- 规则文件由 `init_by_lua_file` 阶段一次性加载: pattern trim、positions 切分,引擎自身派生独立结构,不写回规则对象。
+
 #### 匹配流程
-1. 遍历所有启用的规则文件
-2. 对每个规则的pattern进行正则匹配
-3. 匹配成功 → 累加置信度
-4. 判断是否触发拦截
+1. 遍历 checkData(uri / 各 header / body)
+2. 对每条 data: 遍历 RULE_FILES → 命中 position 前缀 → 遍历 pattern 列表
+3. 命中 → 累加置信度(`possibly`)
+4. 累计置信度/攻击次数超阈值 → 封禁 IP
 
 ### 3. 缓存机制
 
@@ -236,15 +246,27 @@ block:{ip}          # IP封禁状态
 possibly:{ip}       # 疑似攻击置信度
 attack:{ip}         # 攻击次数
 attackCount:{ip}    # 历史攻击计数
-cc:{ip}             # CC攻击计数
+cc:{ip}             # CC攻击计数 (滑动窗口)
+csrf:{session_id}   # CSRF Token (管理后台)
 ```
+
+#### 滑动窗口计数
+`utils/cache.lua` 的 `cacheIncr(key, inc, ttl)` 采用 `shared:incr(...) + shared:expire(...)`,在原子递增的基础上每次显式刷新 TTL,
+保证 CC 防护(60s 内 100 次)和 possibly 累加都遵循"最近 N 秒内累计"的滑动窗口语义,而非"自首次起 N 秒"的固定窗口。
 
 ### 4. 日志系统
 
 #### 异步缓冲写入
 - 缓冲区大小: 4KB
-- 刷新超时: 1秒
+- 刷新超时: 1 秒
 - 按域名和日期分类存储
+- 同 host 的 logger 实例**模块级复用**,跨请求共享 buffer,batching 真正生效
+- `Waf:recordRequest` 通过 `ngx.timer.at(0, ...)` 把磁盘 IO 推出 access 热路径
+- 文件名取自 Host header,经 `sanitizeHost` 清理 NTFS 非法字符(`\ / : * ? " < > |`)与首尾点,纯点 host 回落 `unknown`
+
+#### 编码安全
+- JSON 编码使用 `cjson.safe`: 遇到非法 UTF-8 字节返回 nil+err,不会 raise 中断攻击处理
+- 403 拦截页模板用 function 形式 `gsub` + `htmlEscape`,避免替换串中的 `%` 元字符污染或反射 XSS
 
 #### 日志格式 (JSON)
 ```json
@@ -282,6 +304,12 @@ cc:{ip}             # CC攻击计数
   ```
 
 ## 管理后台
+
+### 安全机制
+- **会话 ID**: `md5(ngx.now() + remote_addr + worker.pid + randomHex(16))`,存 `sessions` shared dict
+- **Cookie 属性**: `HttpOnly; SameSite=Strict`,HTTPS 时动态附加 `Secure`
+- **CSRF Token**: 登录响应 `data.csrf_token`,POST/PUT/DELETE 必须携带 `X-CSRF-Token` header(`/api/login` 豁免)
+- **随机种子**: `init.lua` 中 `math.randomseed(ngx.now() * 1000 + ngx.worker.pid())`,每 worker 独立
 
 ### API接口 (端口9520)
 
@@ -380,11 +408,13 @@ statistics = "on"         # 统计功能
 8. **可视化管理**: Web管理后台，操作便捷
 
 ### 防绕过机制
-1. 多层URL解码
-2. HTML实体解码
-3. 大小写不敏感匹配
+1. 多层URL解码(递归至稳定,超 `decode_max_count` 视为恶意)
+2. HTML实体解码(十进制 `&#NNN;` / 十六进制 `&#xNN;` / 命名实体 / 非 ASCII 编 UTF-8)
+3. 大小写不敏感匹配(`ngx.re.match` 的 `i` flag)
 4. 正则表达式深度匹配
-5. 多位置检测 (URI/Header/Body/Cookie)
+5. 多位置检测(URI/Header/Body/Cookie/User-Agent),header 多值逐值入,避免 join 误命中
+6. body 落盘兜底:大 body 写到 `client_body_temp_path` 时,WAF 回读文件而非放过
+7. headers 无 100 上限(`get_headers(0)`),消除"发 >100 个 header 绕过"的盲区
 
 ## 部署环境
 
