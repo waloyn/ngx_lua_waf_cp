@@ -53,6 +53,21 @@ local _M = {
       pattern = [[ (?:\.internal|\.local|\.corp|\.lan|\.home|\.intranet|\.private)(?:/|:|$) ]],
       name = "Internal Domain Access",
       confidence = 2
+    },
+    {
+      pattern = [[ \b0177\.0+\.0+\.0*1\b|\b0x7f\.0x0\.0x0\.0x1\b|\b017700000001\b ]],
+      name = "Octal/Hex Encoded Localhost",
+      confidence = 3
+    },
+    {
+      pattern = [[ \b127(?:\.\d{1,3}){1,2}(?:[:/?]|$)|\bhttps?://127(?:[:/?]|$) ]],
+      name = "Short-form Localhost (127.x)",
+      confidence = 3
+    },
+    {
+      pattern = [[ \b(?:nip\.io|sslip\.io|xip\.io|traefik\.me|localtest\.me|lvh\.me)\b ]],
+      name = "DNS Rebinding Service",
+      confidence = 3
     }
   }
 }

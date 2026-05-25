@@ -79,6 +79,26 @@ local _M = {
         name = "Meta Refresh Redirect",
         confidence = 3
       },
+      {
+        pattern = [[ <iframe\b[^>]*\ssrcdoc\s*= ]],
+        name = "Iframe Srcdoc Injection",
+        confidence = 3
+      },
+      {
+        pattern = [[ <form\b[^>]*\saction\s*=\s*["']?\s*javascript: ]],
+        name = "Form Action JavaScript URI",
+        confidence = 3
+      },
+      {
+        pattern = [[ \bexpression\s*\(\s*[^)]+\) ]],
+        name = "CSS Expression Injection",
+        confidence = 3
+      },
+      {
+        pattern = [[ <[a-z][^>]*\sstyle\s*=\s*["'][^"']*(?:behavior\s*:\s*url|-moz-binding\s*:|expression\s*\() ]],
+        name = "CSS-based XSS",
+        confidence = 3
+      },
     }
   }
 

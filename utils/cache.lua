@@ -23,16 +23,21 @@ function _M:cacheSet(key, value, expireTime)
     return ok, err
 end
 
--- 增加键的值
+-- 增加键的值（滑动窗口：每次 incr 后显式刷新 TTL）
+-- 注：dict:incr 的 init_ttl 仅在 key 不存在时生效，已存在时不刷 TTL。
+-- 此处通过 expire 在 incr 后重置 TTL，恢复 cacheSet(... ttl) 的滑窗语义。
 function _M:cacheIncr(key, increment, expireTime)
-    local value, err = self.cache:incr(key, increment or 1)
-    if not value and err == "not found" then
-        value, err = self.cache:add(key, increment or 1, expireTime)
-        if not value then
-            ngx.log(ngx.ERR, "failed to add key: " .. key .. " ", err)
+    local inc = increment or 1
+    local value, err = self.cache:incr(key, inc, 0, expireTime)
+    if not value then
+        ngx.log(ngx.ERR, "failed to incr key: " .. key .. " ", err)
+        return value, err
+    end
+    if expireTime then
+        local ok, exp_err = self.cache:expire(key, expireTime)
+        if not ok and exp_err and exp_err ~= "not found" then
+            ngx.log(ngx.WARN, "failed to refresh TTL for key: " .. key .. " ", exp_err)
         end
-    elseif not value then
-        ngx.log(ngx.ERR, "failed to increment key: " .. key .. " ", err)
     end
     return value, err
 end

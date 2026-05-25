@@ -65,9 +65,24 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[<?(?:php|=)|<%(?:@|=)?|<%[^>]{1,100}%>]],
+            pattern = [[<\?(?:php|=)|<%(?:@|=)?|<%[^>]{1,100}%>]],
             name = "Embedded Script Tags in Upload",
             confidence = 2
+        },
+        {
+            pattern = [[filename\s*=\s*[^"';\s]+\.(?:php[0-9]?|phtml|phar|jsp|jspx|asp|aspx|ashx|exe|sh|bat|cmd|ps1|cgi|pl)(?:[\s;]|$)]],
+            name = "Unquoted Dangerous Filename Bypass",
+            confidence = 3
+        },
+        {
+            pattern = [[filename\*?\s*=\s*(?:utf-8''|iso-8859-1''|us-ascii'')?[^;]*%(?:00|0a|0d|2e|2f|5c)]],
+            name = "RFC 5987 Filename Encoding Bypass",
+            confidence = 3
+        },
+        {
+            pattern = [[content-disposition\s*:[^\r\n]*filename[^=]*=[^"'\s]*\.(?:php|jsp|asp|exe|sh)\b]],
+            name = "Content-Disposition Filename Bypass",
+            confidence = 3
         }
     }
 }

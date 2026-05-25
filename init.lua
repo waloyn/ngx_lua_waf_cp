@@ -7,8 +7,21 @@ WAF_CONFIG = {}
 WHITE_IPS = {}
 WHITE_HOST = {}
 BLACK_IPS = {}
+-- 派生的 O(1) 查询 set，由 load_ips/load_hosts 在 init 阶段填充
+WHITE_IP_SET = {}
+WHITE_HOST_SET = {}
+BLACK_IP_SET = {}
 LOGGERS = {}
 DEBUG = false
+
+local function buildSet(list, set)
+    for k in pairs(set) do set[k] = nil end
+    if list then
+        for _, v in ipairs(list) do
+            set[v] = true
+        end
+    end
+end
 
 -- 更新 package.path 以包含 utils 目录
 package.path = package.path .. ";" .. CURRENT_PATH .. "/utils/?.lua;" .. CURRENT_PATH .. "/rules/?.lua"
@@ -74,6 +87,9 @@ function load_ips()
         end
     end
     ngx.log(ngx.INFO, "WAF black ips: ".. #BLACK_IPS)
+
+    buildSet(WHITE_IPS, WHITE_IP_SET)
+    buildSet(BLACK_IPS, BLACK_IP_SET)
 end
 -- 函数：遍历目录
 local function iterate_directory(directory)
@@ -97,6 +113,8 @@ function load_hosts()
           table.insert(WHITE_HOST, line)
     end
     ngx.log(ngx.INFO, "WAF white hosts: ".. #WHITE_HOST)
+
+    buildSet(WHITE_HOST, WHITE_HOST_SET)
 end
 -- 加载规则
 function load_rules()
@@ -115,7 +133,22 @@ function load_rules()
             else
                 local file_path = rules_directory .. file
                 ngx.log(ngx.INFO, "WAF initialized with rule: ", file_path)
-                RULE_FILES[key] = require(key)
+                local rule = require(key)
+                -- 预处理 positions（避免 access 阶段 gmatch）
+                local positions = {}
+                for part in string.gmatch(rule.position or "", '([^,]+)') do
+                    table.insert(positions, part)
+                end
+                rule.positions = positions
+                -- 预处理 pattern trim（避免 access 阶段 match）
+                if rule.rules then
+                    for _, item in ipairs(rule.rules) do
+                        if item.pattern then
+                            item.pattern = item.pattern:match("^%s*(.-)%s*$")
+                        end
+                    end
+                end
+                RULE_FILES[key] = rule
             end
         end
     end

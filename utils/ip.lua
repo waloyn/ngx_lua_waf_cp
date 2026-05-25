@@ -113,24 +113,37 @@ local function initGeoIP()
         return geo
     end
     geo_init_tried = true
-    
+
     local ok, maxminddb = pcall(require, "resty.maxminddb")
     if not ok then
         ngx.log(ngx.WARN, "lua-resty-maxminddb not installed, IP geolocation disabled")
         return nil
     end
-    
-    -- 检查是否已经初始化
-    if not maxminddb.initted() then
-        local mmdb_path = CURRENT_PATH .. "conf.d/GeoLite2-City.mmdb"
-        maxminddb.init(mmdb_path)
-    end
-    
-    if not maxminddb.initted() then
-        ngx.log(ngx.WARN, "Failed to init GeoLite2-City.mmdb")
+
+    local mmdb_path = CURRENT_PATH .. "conf.d/GeoLite2-Country.mmdb"
+    local f = io.open(mmdb_path, "rb")
+    if not f then
+        ngx.log(ngx.WARN, "GeoIP2 mmdb not found, geolocation disabled: ", mmdb_path)
         return nil
     end
-    
+    f:close()
+
+    local ok_init, init_err = pcall(function()
+        if not maxminddb.initted() then
+            maxminddb.init(mmdb_path)
+        end
+    end)
+    if not ok_init then
+        ngx.log(ngx.ERR, "GeoIP2 init failed (libmaxminddb FFI error), geolocation disabled: ", init_err)
+        return nil
+    end
+
+    local ok_check, initted = pcall(maxminddb.initted)
+    if not ok_check or not initted then
+        ngx.log(ngx.WARN, "Failed to init GeoLite2-Country.mmdb")
+        return nil
+    end
+
     geo = maxminddb
     ngx.log(ngx.INFO, "GeoIP2 database loaded successfully")
     return geo

@@ -43,6 +43,23 @@ local _M = {
       pattern = [[ (?:file|netdoc):///|jar:file:// ]],
       name = "File Protocol Access",
       confidence = 2
+    },
+    {
+      pattern = [[ (?:\\u002e\\u002e|\\u002E\\u002E)(?:\\u002f|\\u005c|/|\\) ]],
+      name = "Unicode-Encoded Traversal",
+      confidence = 3
+    },
+    {
+      pattern = [[ (?:\.\.;/|\.\.%u2215|\.\.%u2216) ]],
+      name = "Non-standard Unicode/Semicolon Traversal",
+      confidence = 3
+    },
+    {
+      -- 引擎已在 UnEscapeUri 阶段把 %XX 解码为字节，因此规则匹配解码后的字面字节序列
+      -- \xc0\xaf = overlong UTF-8 for '/'; \xc1\x9c = overlong UTF-8 for '\'
+      pattern = [[ \.\.\xc0\xaf|\.\.\xc1\x9c ]],
+      name = "Overlong UTF-8 Traversal (decoded)",
+      confidence = 3
     }
   }
 }

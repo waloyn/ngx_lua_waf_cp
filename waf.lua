@@ -1,8 +1,9 @@
 ---@diagnostic disable: need-check-nil
 local localCache = require "cache"
 local localCount = require "count"
+local cjson = require "cjson.safe"   -- safe 版本：编码失败返回 nil+err 而非 raise
 
--- 缓存 403 页面内容（模块级缓存，只读取一次）
+-- 缓存 403 页面内容（模块级缓存，只读取一次；修改 403.html 需 reload nginx）
 local cached403Content = nil
 local function get403Content()
     if cached403Content then
@@ -18,15 +19,40 @@ local function get403Content()
     return cached403Content
 end
 
--- 将列表转换为 hash table 以提高查找效率
-local function listToSet(list)
-    local set = {}
-    if list then
-        for _, v in ipairs(list) do
-            set[v] = true
+-- HTML 转义，防止模板渲染产生 XSS
+local HTML_ESCAPE_MAP = { ['&'] = '&amp;', ['<'] = '&lt;', ['>'] = '&gt;', ['"'] = '&quot;', ["'"] = '&#39;' }
+local function htmlEscape(s)
+    if s == nil then return "" end
+    return (string.gsub(tostring(s), "[&<>\"']", HTML_ESCAPE_MAP))
+end
+
+-- 安全替换模板占位符：用 function 形式，避免替换串中 `%` 被 gsub 当元字符处理
+local function safeReplace(content, placeholder, value)
+    local escaped = htmlEscape(value)
+    return (string.gsub(content, placeholder, function() return escaped end))
+end
+
+-- 常见命名实体（最小集，覆盖攻击 payload 常用）
+local NAMED_ENTITIES = {
+    lt = '<', gt = '>', amp = '&', quot = '"', apos = "'", nbsp = ' ',
+}
+
+-- 异步写日志，避免在 access 热路径同步 IO
+local function asyncLog(host, logStr)
+    local ok, err = ngx.timer.at(0, function(premature, h, s)
+        if premature then return end
+        -- 在 timer 上下文内重新 require，避免依赖跨上下文的 upvalue（reload/worker 边界下可能为 nil）
+        local ok_req, logger_mod = pcall(require, "logger")
+        if not ok_req or not logger_mod then
+            ngx.log(ngx.ERR, "asyncLog: failed to require logger: ", tostring(logger_mod))
+            return
         end
+        local hostLogger = logger_mod:new(h)
+        hostLogger:log(s .. '\n')
+    end, host, logStr)
+    if not ok then
+        ngx.log(ngx.ERR, "failed to create log timer: ", err)
     end
-    return set
 end
 
 local Waf = {}
@@ -36,10 +62,13 @@ Waf.__index = Waf
 function Waf:new()
     local ip = require "ip"
     local ipAddr = ip.getClientIP()
-    local host = ngx.req.get_headers()["Host"]
+    -- 0 表示不限制 header 数量，避免攻击者发 >100 个 header 时形成 WAF 盲区
+    local headers = ngx.req.get_headers(0)
+    local host = headers["Host"]
     local instance = {
         ip = ipAddr,
         host = host,
+        headers = headers,
         request_id = ngx.var.request_id,
         key_block = "block:" .. ipAddr,
         key_possibly = "possibly:" .. ipAddr,
@@ -54,25 +83,21 @@ function Waf:new()
         block_timeout = tonumber(WAF_CONFIG["block_timeout"]) or 600,
         cache = localCache:new(),
         count = localCount:new(),
-        -- 预转换为 hash table 提高查找效率
-        whiteIpSet = listToSet(WHITE_IPS),
-        whiteHostSet = listToSet(WHITE_HOST),
-        blackIpSet = listToSet(BLACK_IPS)
     }
     setmetatable(instance, self)
     return instance
 end
 
 function Waf:isWhiteIp()
-    return self.whiteIpSet[self.ip] == true
+    return WHITE_IP_SET[self.ip] == true
 end
 
 function Waf:isWhiteHost()
-    return self.whiteHostSet[self.host] == true
+    return WHITE_HOST_SET[self.host] == true
 end
 
 function Waf:isBlackIp()
-    return self.blackIpSet[self.ip] == true
+    return BLACK_IP_SET[self.ip] == true
 end
 
 function Waf:isBlockedIp()
@@ -89,12 +114,13 @@ function Waf:ret403(msg)
 
     ngx.header.content_type = "text/html"
     ngx.status = ngx.HTTP_FORBIDDEN
-    content = string.gsub(content, "{BLOCK_REASON}", msg)
-    content = string.gsub(content, "{REQUEST_ID}", self.request_id)
-    content = string.gsub(content, "{REQUEST_TIME}", ngx.localtime())
-    content = string.gsub(content, "{IP}", self.ip)
+    -- 用 function 形式替换，避免替换串中 `%` 被 gsub 解释为捕获引用
+    content = safeReplace(content, "{BLOCK_REASON}", msg)
+    content = safeReplace(content, "{REQUEST_ID}", self.request_id)
+    content = safeReplace(content, "{REQUEST_TIME}", ngx.localtime())
+    content = safeReplace(content, "{IP}", self.ip)
     if WAF_CONFIG["debug"] == "on" then
-        ngx.say(msg)
+        ngx.say(htmlEscape(msg))
     else
         ngx.say(content)
     end
@@ -102,9 +128,6 @@ function Waf:ret403(msg)
 end
 
 function Waf:recordRequest(rule, body)
-    local logger = require "logger"
-    local cjson = require "cjson"
-    local hostLogger = logger:new(self.host)
     local logTable = {
         request_id = self.request_id,
         attack_type = rule,
@@ -115,11 +138,11 @@ function Waf:recordRequest(rule, body)
         request_protocol = ngx.var.server_protocol,
         request_data = body,
         user_agent = ngx.var.http_user_agent,
-        headers = ngx.req.get_headers()
+        headers = self.headers
     }
     local logStr, err = cjson.encode(logTable)
     if logStr then
-        hostLogger:log(logStr .. '\n')
+        asyncLog(self.host, logStr)
     else
         ngx.log(ngx.ERR, "failed to encode json: ", err)
     end
@@ -151,25 +174,19 @@ function Waf:inAttack(rule, body, level, desc, possibly)
     local attackCount = tonumber(self.cache:cacheGet(self.key_attack_count) or 0)
     ngx.log(ngx.INFO, self.ip, " attackCount: ", attackCount)
     if attackCount > 0 then
-        -- 只要之前有一次攻击，并且被检测到存在攻击行为，就会封禁IP
         self:blockIp(attackCount + 1)
         return true
     end
 
-    -- 置信度高的攻击直接封禁IP
-    local prevPossibly = tonumber(self.cache:cacheGet(self.key_possibly) or 0)
-    local total = possibly + prevPossibly
-
+    -- 置信度高的攻击直接封禁IP（原子递增，避免多 worker 竞态）
+    local total = self.cache:cacheIncr(self.key_possibly, possibly, self.possibly_timeout) or possibly
     ngx.log(ngx.INFO, self.ip, " possibly: ", total)
-
-    self.cache:cacheSet(self.key_possibly, total, self.possibly_timeout)
     if total < tonumber(self.possibly_count) then
         return false
     end
 
-    -- 攻击次数超过阈值，封禁IP
-    local attackValue = tonumber(self.cache:cacheGet(self.key_attack) or 1)
-    self.cache:cacheSet(self.key_attack, attackValue + 1, self.block_time)
+    -- 攻击次数超过阈值，封禁IP（原子递增）
+    local attackValue = self.cache:cacheIncr(self.key_attack, 1, self.block_time) or 1
     ngx.log(ngx.INFO, self.ip, " attack: ", attackValue)
 
     if attackValue > self.block_count then
@@ -195,13 +212,11 @@ function Waf:isCCAttack()
     local limit = tonumber(WAF_CONFIG["cc_limit"]) or 100
     local seconds = tonumber(WAF_CONFIG["cc_seconds"]) or 60
 
-    local key = self.key_cc
-    local value = tonumber(self.cache:cacheGet(key) or 0)
-    local count = value + 1
+    -- 原子递增，避免高并发计数丢失
+    local count = self.cache:cacheIncr(self.key_cc, 1, seconds) or 1
     if count > limit then
         return true
     end
-    self.cache:cacheSet(key, count, seconds)
     return false
 end
 
@@ -222,12 +237,45 @@ function Waf:UnEscapeUri(uri, max_attempts)
     local decoded_uri_2 = decoded_uri
     prev_decoded_uri = ""
     attempts = 0
-    -- 解码字符实体的函数
+    -- 解码字符实体：&#NNN; (十进制) / &#xNN; (十六进制) / &name; (常见命名实体)
     while decoded_uri_2 ~= prev_decoded_uri and attempts < max_attempts do
         prev_decoded_uri = decoded_uri_2
-        local new_decoded_uri, _, err = ngx.re.gsub(decoded_uri_2, "&#(\\d+);", function(m)
-            return string.char(tonumber(m[1]))
-        end, "jo")
+        local new_decoded_uri, _, err = ngx.re.gsub(decoded_uri_2,
+            [[&(?:#x([0-9a-fA-F]+)|#(\d+)|([a-zA-Z][a-zA-Z0-9]{1,9}));]],
+            function(m)
+                local code
+                if m[1] and m[1] ~= "" then
+                    code = tonumber(m[1], 16)
+                elseif m[2] and m[2] ~= "" then
+                    code = tonumber(m[2])
+                elseif m[3] and m[3] ~= "" then
+                    return NAMED_ENTITIES[m[3]] or m[0]
+                end
+                if not code or code < 0 or code > 0x10FFFF then
+                    return m[0]
+                end
+                if code <= 255 then
+                    return string.char(code)
+                end
+                -- 对 >255 的码点，编为 UTF-8（足以让规则识别原始字符）
+                local ok, ch = pcall(function()
+                    if code < 0x800 then
+                        return string.char(0xC0 + math.floor(code / 0x40), 0x80 + (code % 0x40))
+                    elseif code < 0x10000 then
+                        return string.char(
+                            0xE0 + math.floor(code / 0x1000),
+                            0x80 + math.floor((code % 0x1000) / 0x40),
+                            0x80 + (code % 0x40))
+                    else
+                        return string.char(
+                            0xF0 + math.floor(code / 0x40000),
+                            0x80 + math.floor((code % 0x40000) / 0x1000),
+                            0x80 + math.floor((code % 0x1000) / 0x40),
+                            0x80 + (code % 0x40))
+                    end
+                end)
+                return ok and ch or m[0]
+            end, "jo")
 
         if not new_decoded_uri then
             ngx.log(ngx.ERR, "Error during regex substitution: ", err)
@@ -242,11 +290,32 @@ function Waf:UnEscapeUri(uri, max_attempts)
         return nil
     end
 
-    return string.lower(decoded_uri_2)
+    -- 不再 string.lower：ngx.re.match 的 "i" flag 已覆盖大小写不敏感匹配，
+    -- 对大 body 做 lower 是热路径上无谓的常量复制。
+    return decoded_uri_2
 end
 
-function Waf:trim(s)
-    return s:match("^%s*(.-)%s*$")
+-- 读取并缓存请求 body（一次性）：避免 attack 和 calculateRequestSize 重复 read_body + io.open
+function Waf:_getRawBody()
+    if self._raw_body_cached then
+        return self._raw_body
+    end
+    ngx.req.read_body()
+    local body = ngx.req.get_body_data()
+    if not body then
+        -- body 落盘到临时文件时，get_body_data 返回 nil，回读文件避免规则绕过
+        local body_file = ngx.req.get_body_file()
+        if body_file then
+            local f = io.open(body_file, "rb")
+            if f then
+                body = f:read("*all")
+                f:close()
+            end
+        end
+    end
+    self._raw_body = body or ""
+    self._raw_body_cached = true
+    return self._raw_body
 end
 
 function Waf:attack()
@@ -261,60 +330,52 @@ function Waf:attack()
         return
     end
     table.insert(checkData, "uri: " .. uri)
-    local headers = ngx.req.get_headers()
 
-    for k, v in pairs(headers) do
-        local header
-        -- 判断 v 是否是表类型,处理相同名称多值情况
-        if type(v) == "table" then
-            header = k .. ": " .. table.concat(v, ",")
-        else
-            header = k .. ": " .. v
+    -- headers 逐值入 checkData，避免 join 后跨值误命中
+    for k, v in pairs(self.headers) do
+        local values = type(v) == "table" and v or { v }
+        for _, vv in ipairs(values) do
+            local header = self:UnEscapeUri(k .. ": " .. vv, max_decode_count)
+            if header == nil then
+                self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count)
+                self:ret403("Malicious encoding detected.")
+                return
+            end
+            table.insert(checkData, header)
         end
-        header = self:UnEscapeUri(header, max_decode_count)
-        if header == nil then
-            self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count)
-            self:ret403("Malicious encoding detected.")
-            return
-        end
-        table.insert(checkData, header)
     end
 
-    ngx.req.read_body()
-    local body = ngx.req.get_body_data() or ""
-    body = self:UnEscapeUri(body, max_decode_count)
+    local body = self:UnEscapeUri(self:_getRawBody(), max_decode_count)
     if body == nil then
         self:inAttack("Malicious encoding - Body", "", "high", "恶意编码攻击", self.possibly_count)
         self:ret403("Malicious encoding detected.")
         return
     end
     table.insert(checkData, "body: " .. body)
+
+    -- 规则匹配（positions 和 pattern 已在 init 阶段预处理）
+    -- 嵌套顺序：data → rule → position 前缀（命中后才进入 pattern 循环），避免同 rule 多 pattern 重复做前缀检查
     for _, data in ipairs(checkData) do
         for _, rule in pairs(RULE_FILES) do
-            for _, patternItem in pairs(rule.rules) do
-                local positions = {}
-
-                -- 使用 string.gmatch 分割字符串
-                for part in string.gmatch(rule.position, '([^,]+)') do
-                    table.insert(positions, part)
+            local hit_pos = nil
+            for _, p in ipairs(rule.positions) do
+                if data:sub(1, #p) == p then
+                    hit_pos = p
+                    break
                 end
-
-                for _, p in ipairs(positions) do
-                    if data:sub(1, #p) == p then
-                        local regex = patternItem.pattern:match("^%s*(.-)%s*$")
-                        if ngx.re.match(data, regex, "isjo") then
-                            -- 记录攻击并判断是否需要封禁
-                            self:inAttack(rule.name .. " - " .. p .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
-                            -- 无论是否封禁，检测到攻击都返回 403
-                            if WAF_CONFIG["debug"] == "on" then
-                                self:ret403("Attack detected,Debug msg: " ..
-                                    rule.name ..
-                                    " - " .. patternItem.name .. " => " .. regex .. " [TEXT] => " .. data)
-                            else
-                                self:ret403("Attack detected.")
-                            end
-                            return
+            end
+            if hit_pos then
+                for _, patternItem in pairs(rule.rules) do
+                    if ngx.re.match(data, patternItem.pattern, "isjo") then
+                        self:inAttack(rule.name .. " - " .. hit_pos .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
+                        if WAF_CONFIG["debug"] == "on" then
+                            self:ret403("Attack detected,Debug msg: " ..
+                                rule.name ..
+                                " - " .. patternItem.name .. " => " .. patternItem.pattern .. " [TEXT] => " .. data)
+                        else
+                            self:ret403("Attack detected.")
                         end
+                        return
                     end
                 end
             end
@@ -324,8 +385,7 @@ end
 
 function Waf:calculateRequestSize()
     local headers_size = 0
-    local headers = ngx.req.get_headers()
-    for k, v in pairs(headers) do
+    for k, v in pairs(self.headers) do
         headers_size = headers_size + #k
         if type(v) == "table" then
             for _, vv in ipairs(v) do
@@ -336,12 +396,15 @@ function Waf:calculateRequestSize()
         end
     end
 
-    local body_length = tonumber(ngx.var.content_length) or 0
+    -- chunked 传输无 content_length，复用已缓存的 body 长度（避免重复读文件）
+    local body_length = tonumber(ngx.var.content_length)
+    if not body_length then
+        body_length = #self:_getRawBody()
+    end
     local method_size = #ngx.req.get_method()
     local uri_size = #ngx.var.request_uri
 
-    local total_size = headers_size + body_length + method_size + uri_size
-    return total_size
+    return headers_size + body_length + method_size + uri_size
 end
 
 function Waf:process()

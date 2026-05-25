@@ -84,6 +84,26 @@ local _M = {
       name = "PostgreSQL Sleep Injection",
       confidence = 3
     },
+    {
+      pattern = [[ ;\s*(?:drop|alter|create|truncate|grant|revoke|rename)\s+(?:table|database|user|schema|view|index|procedure|function) ]],
+      name = "Stacked Query DDL",
+      confidence = 3
+    },
+    {
+      pattern = [[ (?:utl_http\.|utl_inaddr\.|utl_smtp\.|dbms_pipe\.|dbms_ldap\.|xp_dirtree|xp_fileexist|xp_subdirs|xp_cmdshell|sp_makewebtask|sp_oacreate)\b ]],
+      name = "Out-of-Band SQL Injection",
+      confidence = 3
+    },
+    {
+      pattern = [[ \b0x[0-9a-f]{16,}\b ]],
+      name = "SQL Hex Literal Payload",
+      confidence = 2
+    },
+    {
+      pattern = [[ (?:char|chr|ascii|concat|substring|substr|hex|unhex|cast|convert)\s*\(\s*(?:0x[0-9a-f]+|\d+\s*,) ]],
+      name = "SQL String Function Obfuscation",
+      confidence = 2
+    },
   }
 }
 

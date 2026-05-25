@@ -85,7 +85,7 @@ local _M = {
         },
         -- ERB (Ruby)
         {
-            pattern = [[<\%=?\s*(?:system|exec|eval|`|require|load|open|IO\.|File\.|Dir\.)|\%>]],
+            pattern = [[<\%=?\s*(?:system|exec|eval|`|require|load|open|IO\.|File\.|Dir\.)]],
             name = "ERB Ruby Code Injection",
             confidence = 3
         },

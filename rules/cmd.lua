@@ -58,6 +58,41 @@ local _M = {
             pattern = [[(?:^|[;|&`<>(){}\[\]\s])(?:dir|whoami|systeminfo|tasklist|ipconfig|certutil|powershell|findstr|tracert|nslookup|netsh|wmic)(?=[\s;|&`<>(){}\[\]'"]|$)]],
             name = "Common Windows Commands",
             confidence = 2
+        },
+        {
+            pattern = [=[\b(?:iex|invoke-expression|invoke-webrequest|invoke-restmethod|invoke-command|invoke-item)\b(?:\s+|\s*\()]=],
+            name = "PowerShell Invoke Cmdlets",
+            confidence = 3
+        },
+        {
+            pattern = [[\bnew-object\s+(?:net\.webclient|system\.net\.webclient|net\.sockets\.tcpclient|scripting\.filesystemobject)\b]],
+            name = "PowerShell New-Object Downloader",
+            confidence = 3
+        },
+        {
+            pattern = [[\.(?:downloadstring|downloadfile|downloaddata)\s*\(]],
+            name = "PowerShell WebClient Download",
+            confidence = 3
+        },
+        {
+            pattern = [=[\b(?:powershell|pwsh)(?:\.exe)?\s+(?:-[a-z]+\s+)*-(?:e|en|enc|ec|encodedcommand)\s+[a-z0-9+/=]{16,}]=],
+            name = "PowerShell EncodedCommand",
+            confidence = 3
+        },
+        {
+            pattern = [=[\$\([^)]*(?:get-|set-|new-|invoke-|start-|stop-|out-|write-|read-)[a-z]+]=],
+            name = "PowerShell Subexpression with Cmdlet",
+            confidence = 3
+        },
+        {
+            pattern = [=[\b(?:bash|sh|zsh|ksh)\s+-c\s+['"][^'"]+['"]]=],
+            name = "Shell -c Command Execution",
+            confidence = 3
+        },
+        {
+            pattern = [[\$\{(?:IFS|PATH|HOME|USER|SHELL)\}|\$IFS\$\d]],
+            name = "Shell Variable Bypass",
+            confidence = 3
         }
     }
 }

@@ -32,7 +32,7 @@ local _M = {
         },
         -- PHP 反序列化
         {
-            pattern = [[O:\d+:"[^"]+":[\d+:]],
+            pattern = [=[O:\d+:"[^"]+":\d+:\{]=],
             name = "PHP Serialized Object",
             confidence = 2
         },
