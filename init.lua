@@ -117,6 +117,9 @@ function load_hosts()
     buildSet(WHITE_HOST, WHITE_HOST_SET)
 end
 -- 加载规则
+-- 合法 position 集合（与 access 阶段 checkData 元素前缀对应）
+local VALID_POSITIONS = { uri = true, body = true, cookie = true, ["user-agent"] = true }
+
 function load_rules()
     if WAF_CONFIG["mode"] == "off" then
         return
@@ -133,22 +136,40 @@ function load_rules()
             else
                 local file_path = rules_directory .. file
                 ngx.log(ngx.INFO, "WAF initialized with rule: ", file_path)
-                local rule = require(key)
-                -- 预处理 positions（避免 access 阶段 gmatch）
+                local raw = require(key)
+
+                -- 切分 positions 并做白名单校验（未知 position 会被规则静默失效，必须告警）
                 local positions = {}
-                for part in string.gmatch(rule.position or "", '([^,]+)') do
-                    table.insert(positions, part)
+                for part in string.gmatch(raw.position or "", '([^,]+)') do
+                    if VALID_POSITIONS[part] then
+                        table.insert(positions, part)
+                    else
+                        ngx.log(ngx.WARN, "rule ", key, ": unknown position '", part,
+                            "' (valid: uri/body/cookie/user-agent)")
+                    end
                 end
-                rule.positions = positions
-                -- 预处理 pattern trim（避免 access 阶段 match）
-                if rule.rules then
-                    for _, item in ipairs(rule.rules) do
+
+                -- 派生独立的预处理 rules 列表，不写回 require 表（保持规则文件作为只读 DSL）
+                local preprocessed = {}
+                if raw.rules then
+                    for _, item in ipairs(raw.rules) do
                         if item.pattern then
-                            item.pattern = item.pattern:match("^%s*(.-)%s*$")
+                            table.insert(preprocessed, {
+                                pattern    = item.pattern:match("^%s*(.-)%s*$"),
+                                name       = item.name,
+                                confidence = item.confidence,
+                            })
                         end
                     end
                 end
-                RULE_FILES[key] = rule
+
+                RULE_FILES[key] = {
+                    name      = raw.name,
+                    desc      = raw.desc,
+                    level     = raw.level,
+                    positions = positions,
+                    rules     = preprocessed,
+                }
             end
         end
     end

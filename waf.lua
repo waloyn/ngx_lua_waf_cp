@@ -2,6 +2,7 @@
 local localCache = require "cache"
 local localCount = require "count"
 local cjson = require "cjson.safe"   -- safe 版本：编码失败返回 nil+err 而非 raise
+local decoder = require "decoder"
 
 -- 缓存 403 页面内容（模块级缓存，只读取一次；修改 403.html 需 reload nginx）
 local cached403Content = nil
@@ -31,11 +32,6 @@ local function safeReplace(content, placeholder, value)
     local escaped = htmlEscape(value)
     return (string.gsub(content, placeholder, function() return escaped end))
 end
-
--- 常见命名实体（最小集，覆盖攻击 payload 常用）
-local NAMED_ENTITIES = {
-    lt = '<', gt = '>', amp = '&', quot = '"', apos = "'", nbsp = ' ',
-}
 
 -- 异步写日志，避免在 access 热路径同步 IO
 local function asyncLog(host, logStr)
@@ -220,81 +216,6 @@ function Waf:isCCAttack()
     return false
 end
 
-function Waf:UnEscapeUri(uri, max_attempts)
-    local decoded_uri = uri
-    local prev_decoded_uri = ""
-    local attempts = 0
-    while decoded_uri ~= prev_decoded_uri and attempts < max_attempts do
-        prev_decoded_uri = decoded_uri
-        decoded_uri = ngx.unescape_uri(decoded_uri)
-        attempts = attempts + 1
-    end
-
-    if attempts >= max_attempts then
-        return nil
-    end
-
-    local decoded_uri_2 = decoded_uri
-    prev_decoded_uri = ""
-    attempts = 0
-    -- 解码字符实体：&#NNN; (十进制) / &#xNN; (十六进制) / &name; (常见命名实体)
-    while decoded_uri_2 ~= prev_decoded_uri and attempts < max_attempts do
-        prev_decoded_uri = decoded_uri_2
-        local new_decoded_uri, _, err = ngx.re.gsub(decoded_uri_2,
-            [[&(?:#x([0-9a-fA-F]+)|#(\d+)|([a-zA-Z][a-zA-Z0-9]{1,9}));]],
-            function(m)
-                local code
-                if m[1] and m[1] ~= "" then
-                    code = tonumber(m[1], 16)
-                elseif m[2] and m[2] ~= "" then
-                    code = tonumber(m[2])
-                elseif m[3] and m[3] ~= "" then
-                    return NAMED_ENTITIES[m[3]] or m[0]
-                end
-                if not code or code < 0 or code > 0x10FFFF then
-                    return m[0]
-                end
-                if code <= 255 then
-                    return string.char(code)
-                end
-                -- 对 >255 的码点，编为 UTF-8（足以让规则识别原始字符）
-                local ok, ch = pcall(function()
-                    if code < 0x800 then
-                        return string.char(0xC0 + math.floor(code / 0x40), 0x80 + (code % 0x40))
-                    elseif code < 0x10000 then
-                        return string.char(
-                            0xE0 + math.floor(code / 0x1000),
-                            0x80 + math.floor((code % 0x1000) / 0x40),
-                            0x80 + (code % 0x40))
-                    else
-                        return string.char(
-                            0xF0 + math.floor(code / 0x40000),
-                            0x80 + math.floor((code % 0x40000) / 0x1000),
-                            0x80 + math.floor((code % 0x1000) / 0x40),
-                            0x80 + (code % 0x40))
-                    end
-                end)
-                return ok and ch or m[0]
-            end, "jo")
-
-        if not new_decoded_uri then
-            ngx.log(ngx.ERR, "Error during regex substitution: ", err)
-            return nil
-        end
-
-        decoded_uri_2 = new_decoded_uri
-        attempts = attempts + 1
-    end
-
-    if attempts >= max_attempts then
-        return nil
-    end
-
-    -- 不再 string.lower：ngx.re.match 的 "i" flag 已覆盖大小写不敏感匹配，
-    -- 对大 body 做 lower 是热路径上无谓的常量复制。
-    return decoded_uri_2
-end
-
 -- 读取并缓存请求 body（一次性）：避免 attack 和 calculateRequestSize 重复 read_body + io.open
 function Waf:_getRawBody()
     if self._raw_body_cached then
@@ -323,7 +244,7 @@ function Waf:attack()
     local uri = ngx.var.request_uri
     local checkData = {}
 
-    uri = self:UnEscapeUri(uri, max_decode_count)
+    uri = decoder.unescape(uri, max_decode_count)
     if uri == nil then
         self:inAttack("Malicious encoding - URI", "", "high", "恶意编码攻击", self.possibly_count)
         self:ret403("Malicious encoding detected.")
@@ -335,7 +256,7 @@ function Waf:attack()
     for k, v in pairs(self.headers) do
         local values = type(v) == "table" and v or { v }
         for _, vv in ipairs(values) do
-            local header = self:UnEscapeUri(k .. ": " .. vv, max_decode_count)
+            local header = decoder.unescape(k .. ": " .. vv, max_decode_count)
             if header == nil then
                 self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count)
                 self:ret403("Malicious encoding detected.")
@@ -345,7 +266,7 @@ function Waf:attack()
         end
     end
 
-    local body = self:UnEscapeUri(self:_getRawBody(), max_decode_count)
+    local body = decoder.unescape(self:_getRawBody(), max_decode_count)
     if body == nil then
         self:inAttack("Malicious encoding - Body", "", "high", "恶意编码攻击", self.possibly_count)
         self:ret403("Malicious encoding detected.")

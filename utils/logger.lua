@@ -10,14 +10,15 @@ local cache = require "cache"
 -- 清理 host 中的文件名非法字符
 -- Windows 非法: \ / : * ? " < > |；其中 `:` 在 NTFS 中会被识别为 ADS 分隔符，
 -- 导致 "host:port.log" 被解析为「主文件 host + ADS 流 port.log」，主文件落盘为空，.log 后缀"丢失"。
--- 同时去除首尾空白、尾部的 `.`（Windows 不允许文件名以点或空格结尾）。
+-- 同时去除首尾空白、首尾的 `.`（Windows 不允许文件名以点或空格结尾；
+-- 全是点的 host 如 "." / ".." / "..." 视为非法，回落 unknown）。
 local function sanitizeHost(host)
     if not host or host == "" then
         return "unknown"
     end
     local s = ngx.re.gsub(host, [=[[\\/:*?"<>|\x00-\x1f]]=], "_", "jo")
-    s = ngx.re.gsub(s, [=[^\s+|[\s.]+$]=], "", "jo")
-    if s == "" then
+    s = ngx.re.gsub(s, [=[^[.\s]+|[.\s]+$]=], "", "jo")
+    if s == "" or s:match("^%.+$") then
         return "unknown"
     end
     return s
