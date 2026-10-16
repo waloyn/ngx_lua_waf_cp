@@ -370,16 +370,22 @@ block_time = 600          # 攻击次数统计时间(秒)
 
 # 规则开关
 exp_backup = "on"         # 备份路径检测
+exp_bot = "on"            # 恶意机器人检测
 exp_cmd = "on"            # 命令注入检测
+exp_deserialize = "on"    # 反序列化攻击检测规则
 exp_dns = "on"            # DNS攻击检测
 exp_ldap = "on"           # LDAP注入检测
+exp_nosql = "on"          # NoSQL注入检测规则
 exp_path = "on"           # 路径遍历检测
 exp_sensitive = "on"      # 敏感信息检测
+exp_spring = "on"         # Spring Boot检测规则
 exp_sqli = "on"           # SQL注入检测
 exp_ssrf = "on"           # SSRF攻击检测
+exp_ssti = "on"           # SSTI模板注入检测规则
+exp_upload = "on"         # 文件上传检测规则
 exp_xss = "on"            # XSS攻击检测
 exp_xxe = "on"            # XXE攻击检测
-exp_bot = "off"           # 恶意机器人检测
+
 
 # 请求限制
 body_max_size = 52428800  # 请求体最大大小(字节) 50MB

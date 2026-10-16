@@ -5,6 +5,7 @@ createApp({
         return {
             username: '',
             password: '',
+            showPassword: false,
             remember: false,
             isLoading: false,
             toast: {
