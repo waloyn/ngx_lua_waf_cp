@@ -5,7 +5,6 @@ local timerat = ngx.timer.at
 local _M = {}
 local mt = { __index = _M }
 local localFile = require "localFile"
-local cache = require "cache"
 
 -- 清理 host 中的文件名非法字符
 -- Windows 非法: \ / : * ? " < > |；其中 `:` 在 NTFS 中会被识别为 ADS 分隔符，
@@ -23,6 +22,8 @@ local function sanitizeHost(host)
     end
     return s
 end
+
+_M.sanitizeHost = sanitizeHost
 
 -- 模块级实例缓存：相同 host 复用同一 logger，让内部 batching 生效
 -- （require 缓存保证该表跨请求存活；多 worker 各自一份，无需共享）
@@ -45,8 +46,6 @@ function _M:new(host)
 
         host = host,                       -- 主机名（已清理非法字符）
         timer = false,                     -- 定时器
-        LOCK_KEY = "logger_lock_" .. host, -- 锁的key
-        lock = cache:new("dict_locks")
     }
 
     setmetatable(t, mt)
@@ -63,28 +62,25 @@ local function writeFile(self, value)
     localFile.writeFile(logPath, filename, value)
 end
 
--- 刷新缓冲区，将缓冲区数据写入文件
+-- 刷新缓冲区，将缓冲区数据写入文件（buffer_data 为单 Worker 私有，先快照清空再写盘，避免重入与跨 Worker 误跳过）
 local function flushBuffer(self)
     if self.buffered_size == 0 then
         return
     end
 
-    -- 加锁，确保只有一个请求在执行以下操作
-    if self.lock:cacheGet(self.LOCK_KEY) then
-        return
-    end
-
-    self.lock:cacheSet(self.LOCK_KEY, true)
-
     local buffer = concat(self.buffer_data, "", 1, self.buffer_index)
-    writeFile(self, buffer)
-
     self.buffered_size = 0
     self.buffer_index = 0
     self.buffer_data = newtab(20000, 0)
 
-    -- 解锁
-    self.lock:cacheDel(self.LOCK_KEY)
+    writeFile(self, buffer)
+end
+
+-- 刷新当前 Worker 内所有 host 的剩余日志缓冲（供 Worker 退出时调用）
+function _M.flushAll()
+    for _, loggerInstance in pairs(loggers_by_host) do
+        flushBuffer(loggerInstance)
+    end
 end
 
 -- 定时器回调函数，用于定期刷新缓冲区

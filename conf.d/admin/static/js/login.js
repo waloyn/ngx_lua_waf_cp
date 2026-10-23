@@ -46,14 +46,14 @@ createApp({
                     if (csrfToken) {
                         sessionStorage.setItem('csrf_token', csrfToken);
                     }
+                    // 仅记住用户名，禁止将明文密码存入 localStorage
+                    localStorage.removeItem('password');
                     if (this.remember) {
                         localStorage.setItem('remember', 'true');
                         localStorage.setItem('username', this.username);
-                        localStorage.setItem('password', this.password);
                     } else {
                         localStorage.removeItem('remember');
                         localStorage.removeItem('username');
-                        localStorage.removeItem('password');
                     }
                     this.showToast('登录成功', 'success');
                     setTimeout(() => {
@@ -80,10 +80,11 @@ createApp({
             }
         },
         checkRemember() {
+            // 清理历史版本遗留的明文密码存储
+            localStorage.removeItem('password');
             const remember = localStorage.getItem('remember') === 'true';
             if (remember) {
                 this.username = localStorage.getItem('username') || '';
-                this.password = localStorage.getItem('password') || '';
                 this.remember = true;
             }
         }

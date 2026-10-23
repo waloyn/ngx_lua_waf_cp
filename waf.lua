@@ -3,6 +3,7 @@ local localCache = require "cache"
 local localCount = require "count"
 local cjson = require "cjson.safe"   -- safe 版本：编码失败返回 nil+err 而非 raise
 local decoder = require "decoder"
+local ip = require "ip"
 
 -- 缓存 403 页面内容（模块级缓存，只读取一次；修改 403.html 需 reload nginx）
 local cached403Content = nil
@@ -56,11 +57,10 @@ Waf.__index = Waf
 
 -- Constructor
 function Waf:new()
-    local ip = require "ip"
     local ipAddr = ip.getClientIP()
     -- 0 表示不限制 header 数量，避免攻击者发 >100 个 header 时形成 WAF 盲区
     local headers = ngx.req.get_headers(0)
-    local host = headers["Host"]
+    local host = headers["Host"] or headers["host"] or ngx.var.host
     local instance = {
         ip = ipAddr,
         host = host,
@@ -85,15 +85,29 @@ function Waf:new()
 end
 
 function Waf:isWhiteIp()
-    return WHITE_IP_SET[self.ip] == true
+    if WHITE_IP_SET[self.ip] == true then
+        return true
+    end
+    return ip.isIpInCidrs(self.ip, WHITE_CIDRS)
 end
 
 function Waf:isWhiteHost()
-    return WHITE_HOST_SET[self.host] == true
+    if not self.host then
+        return false
+    end
+    local lower_host = tostring(self.host):lower()
+    if WHITE_HOST_SET[lower_host] == true then
+        return true
+    end
+    local host_only = lower_host:match("^([^:]+)")
+    return host_only ~= nil and WHITE_HOST_SET[host_only] == true
 end
 
 function Waf:isBlackIp()
-    return BLACK_IP_SET[self.ip] == true
+    if BLACK_IP_SET[self.ip] == true then
+        return true
+    end
+    return ip.isIpInCidrs(self.ip, BLACK_CIDRS)
 end
 
 function Waf:isBlockedIp()
@@ -160,8 +174,9 @@ end
 
 function Waf:inAttack(rule, body, level, desc, possibly)
     self:recordRequest(rule, body)
+    self.count:addAttackCount(rule)
 
-    -- 监控模式下不拦截请求
+    -- 监控模式下仅记录日志与统计，不拦截请求
     if WAF_CONFIG["mode"] == "monitor" then
         return false
     end
@@ -174,22 +189,23 @@ function Waf:inAttack(rule, body, level, desc, possibly)
         return true
     end
 
-    -- 置信度高的攻击直接封禁IP（原子递增，避免多 worker 竞态）
-    local total = self.cache:cacheIncr(self.key_possibly, possibly, self.possibly_timeout) or possibly
+    -- 累加可疑度评分（原子递增，避免多 worker 竞态）
+    local weight = tonumber(possibly) or 1
+    local total = self.cache:cacheIncr(self.key_possibly, weight, self.possibly_timeout) or weight
     ngx.log(ngx.INFO, self.ip, " possibly: ", total)
     if total < tonumber(self.possibly_count) then
+        -- 尚未达到触发拦截的置信度阈值，放行本次请求
         return false
     end
 
-    -- 攻击次数超过阈值，封禁IP（原子递增）
+    -- 置信度达到阈值，记录本次恶意攻击行为并拦截本次请求
     local attackValue = self.cache:cacheIncr(self.key_attack, 1, self.block_time) or 1
     ngx.log(ngx.INFO, self.ip, " attack: ", attackValue)
 
-    if attackValue > self.block_count then
+    if attackValue >= self.block_count then
         self:blockIp(1)
-        return true
     end
-    return false
+    return true
 end
 
 function Waf:isBigRequest()
@@ -241,62 +257,81 @@ end
 
 function Waf:attack()
     local max_decode_count = tonumber(WAF_CONFIG["decode_max_count"] or 10)
-    local uri = ngx.var.request_uri
+    local raw_uri = ngx.var.request_uri or ""
     local checkData = {}
 
-    uri = decoder.unescape(uri, max_decode_count)
+    local uri = decoder.unescape(raw_uri, max_decode_count)
     if uri == nil then
-        self:inAttack("Malicious encoding - URI", "", "high", "恶意编码攻击", self.possibly_count)
-        self:ret403("Malicious encoding detected.")
+        if self:inAttack("Malicious encoding - URI", "", "high", "恶意编码攻击", self.possibly_count) then
+            self:ret403("Malicious encoding detected.")
+        end
         return
     end
-    table.insert(checkData, "uri: " .. uri)
+    table.insert(checkData, { pos = "uri", is_header = false, text = uri })
 
     -- headers 逐值入 checkData，避免 join 后跨值误命中
     for k, v in pairs(self.headers) do
+        local k_lower = string.lower(tostring(k))
         local values = type(v) == "table" and v or { v }
         for _, vv in ipairs(values) do
-            local header = decoder.unescape(k .. ": " .. vv, max_decode_count)
-            if header == nil then
-                self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count)
-                self:ret403("Malicious encoding detected.")
+            local decoded_val = decoder.unescape(tostring(vv), max_decode_count)
+            if decoded_val == nil then
+                if self:inAttack("Malicious encoding - Header", "", "high", "恶意编码攻击", self.possibly_count) then
+                    self:ret403("Malicious encoding detected.")
+                end
                 return
             end
-            table.insert(checkData, header)
+            table.insert(checkData, {
+                pos = k_lower,
+                is_header = true,
+                text = k_lower .. ": " .. decoded_val
+            })
         end
     end
 
     local body = decoder.unescape(self:_getRawBody(), max_decode_count)
     if body == nil then
-        self:inAttack("Malicious encoding - Body", "", "high", "恶意编码攻击", self.possibly_count)
-        self:ret403("Malicious encoding detected.")
+        if self:inAttack("Malicious encoding - Body", "", "high", "恶意编码攻击", self.possibly_count) then
+            self:ret403("Malicious encoding detected.")
+        end
         return
     end
-    table.insert(checkData, "body: " .. body)
+    if body ~= "" then
+        table.insert(checkData, { pos = "body", is_header = false, text = body })
+    end
 
     -- 规则匹配（positions 和 pattern 已在 init 阶段预处理）
-    -- 嵌套顺序：data → rule → position 前缀（命中后才进入 pattern 循环），避免同 rule 多 pattern 重复做前缀检查
-    for _, data in ipairs(checkData) do
+    for _, item in ipairs(checkData) do
         for _, rule in pairs(RULE_FILES) do
             local hit_pos = nil
             for _, p in ipairs(rule.positions) do
-                if data:sub(1, #p) == p then
-                    hit_pos = p
+                if item.pos == p or (p == "headers" and item.is_header) then
+                    hit_pos = item.pos
                     break
                 end
             end
             if hit_pos then
-                for _, patternItem in pairs(rule.rules) do
-                    if ngx.re.match(data, patternItem.pattern, "isjo") then
-                        self:inAttack(rule.name .. " - " .. hit_pos .. " - " .. patternItem.name, body, rule.level, rule.desc, patternItem.confidence)
-                        if WAF_CONFIG["debug"] == "on" then
-                            self:ret403("Attack detected,Debug msg: " ..
-                                rule.name ..
-                                " - " .. patternItem.name .. " => " .. patternItem.pattern .. " [TEXT] => " .. data)
-                        else
-                            self:ret403("Attack detected.")
+                for _, patternItem in ipairs(rule.rules) do
+                    if ngx.re.match(item.text, patternItem.pattern, "isjo") then
+                        local should_block = self:inAttack(
+                            rule.name .. " - " .. hit_pos .. " - " .. patternItem.name,
+                            body,
+                            rule.level,
+                            rule.desc,
+                            patternItem.confidence
+                        )
+                        if should_block then
+                            if WAF_CONFIG["debug"] == "on" then
+                                self:ret403("Attack detected, Debug msg: " ..
+                                    rule.name ..
+                                    " - " .. patternItem.name .. " => " .. patternItem.pattern .. " [TEXT] => " .. item.text)
+                            else
+                                self:ret403("Attack detected.")
+                            end
+                            return
                         end
-                        return
+                        -- 若未达拦截阈值（如低置信度累加中或处于 monitor 模式），跳出当前规则继续审计其余规则
+                        break
                     end
                 end
             end
@@ -330,35 +365,54 @@ end
 
 function Waf:process()
     self.count:addReqCount(self.ip)
-    if WAF_CONFIG["mode"] == "off" then
+    local mode = WAF_CONFIG["mode"]
+    if mode == "off" then
         ngx.log(ngx.INFO, "WAF is off")
         return
     elseif self:isWhiteIp() then
-        ngx.log(ngx.WARN, "White IP")
+        ngx.log(ngx.INFO, "White IP: ", self.ip)
         return
     elseif self:isWhiteHost() then
-        ngx.log(ngx.WARN, "White HOST")
+        ngx.log(ngx.INFO, "White HOST: ", tostring(self.host))
         return
-    elseif self:isBlackIp() then
-        ngx.log(ngx.WARN, "Black IP")
-        self:ret403("Your IP has been blacklisted")
-        return
-    elseif self:isBlockedIp() then
-        ngx.log(ngx.WARN, "Blocked IP")
-        self:ret403("Your IP has been blocked")
-        return
-    elseif self:isCCAttack() then
-        ngx.log(ngx.WARN, "CC Attack")
-        self:ret403("CC Attack")
-        return
-    elseif self:isBigRequest() then
-        ngx.log(ngx.WARN, "Big request")
-        self:ret403("Request body is too large")
-        return
-    else
-        self:attack()
     end
+
+    local is_monitor = (mode == "monitor")
+
+    if self:isBlackIp() then
+        ngx.log(ngx.WARN, "Black IP: ", self.ip)
+        if not is_monitor then
+            self:ret403("Your IP has been blacklisted")
+            return
+        end
+    elseif self:isBlockedIp() then
+        ngx.log(ngx.WARN, "Blocked IP: ", self.ip)
+        if not is_monitor then
+            self:ret403("Your IP has been blocked")
+            return
+        end
+    elseif self:isCCAttack() then
+        ngx.log(ngx.WARN, "CC Attack: ", self.ip)
+        self:recordRequest("CC Attack", "")
+        self.count:addAttackCount("cc")
+        if not is_monitor then
+            self:ret403("CC Attack")
+            return
+        end
+    elseif self:isBigRequest() then
+        ngx.log(ngx.WARN, "Big request: ", self.ip)
+        if not is_monitor then
+            self:ret403("Request body is too large")
+            return
+        end
+    end
+
+    self:attack()
 end
 
-local myWaf = Waf:new()
-myWaf:process()
+if ngx and ngx.get_phase and ngx.get_phase() == "access" then
+    local myWaf = Waf:new()
+    myWaf:process()
+end
+
+return Waf

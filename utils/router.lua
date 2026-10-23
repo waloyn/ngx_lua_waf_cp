@@ -1,7 +1,11 @@
 local _M = {}
-local cjson = require "cjson"
+local cjson = require "cjson.safe"
 local api = require "api"
 local auth = require "auth"
+
+-- 登录防爆破阈值：单 IP 5 分钟内最多允许 10 次失败尝试
+local LOGIN_FAIL_LIMIT = 10
+local LOGIN_FAIL_WINDOW = 300
 
 -- 构建带安全属性的Cookie字符串
 local function buildCookieStr(name, value, options)
@@ -28,20 +32,35 @@ local function response(data, code)
     ngx.exit(code)
 end
 
--- 获取POST请求体
+-- 获取POST/PUT请求体（兼容大报文落盘与安全 JSON 解码）
 local function getRequestBody()
     ngx.req.read_body()
     local data = ngx.req.get_body_data()
     if not data then
+        local body_file = ngx.req.get_body_file()
+        if body_file then
+            local f = io.open(body_file, "rb")
+            if f then
+                data = f:read("*a")
+                f:close()
+            end
+        end
+    end
+    if not data or data == "" then
         return nil
     end
-    return cjson.decode(data)
+    local decoded, err = cjson.decode(data)
+    if not decoded then
+        ngx.log(ngx.WARN, "Failed to decode request JSON body: ", tostring(err))
+        return nil
+    end
+    return decoded
 end
 
 -- 检查用户认证
 local function checkAuth()
     if not auth.validateSession() then
-        response({message = "Unauthorized"}, 401)
+        response({ message = "Unauthorized" }, 401)
         return false
     end
     return true
@@ -52,19 +71,34 @@ function _M.handle()
     local uri = ngx.var.uri
     local method = ngx.req.get_method()
 
-    -- 登录接口
+    -- 登录接口（含防暴力破解速率限制）
     if uri == "/api/login" and method == "POST" then
+        local client_ip = ngx.var.remote_addr or "unknown"
+        local fail_key = "login_fail:" .. client_ip
+        local sessions_dict = ngx.shared.sessions
+        local fail_count = sessions_dict and tonumber(sessions_dict:get(fail_key) or 0) or 0
+        if fail_count >= LOGIN_FAIL_LIMIT then
+            response({ message = "Too many login attempts, please try again later" }, 429)
+            return
+        end
+
         local data = getRequestBody()
-        if not data or not data.username or not data.password then
-            response({message = "Invalid request"}, 400)
+        if not data or type(data.username) ~= "string" or type(data.password) ~= "string" then
+            response({ message = "Invalid request" }, 400)
             return
         end
         local session_id, csrf_token = auth.authenticate(data.username, data.password)
         if session_id then
+            if sessions_dict then
+                sessions_dict:delete(fail_key)
+            end
             ngx.header["Set-Cookie"] = buildCookieStr("session_id", session_id)
-            response({message = "Login successful", csrf_token = csrf_token})
+            response({ message = "Login successful", csrf_token = csrf_token })
         else
-            response({message = "Invalid credentials"}, 401)
+            if sessions_dict then
+                sessions_dict:incr(fail_key, 1, 0, LOGIN_FAIL_WINDOW)
+            end
+            response({ message = "Invalid credentials" }, 401)
         end
         return
     end
@@ -73,8 +107,8 @@ function _M.handle()
     if uri == "/api/logout" and method == "POST" then
         local session_id = ngx.var.cookie_session_id
         auth.logout(session_id)
-        ngx.header["Set-Cookie"] = buildCookieStr("session_id", "", {expires = "Thu, 01 Jan 1970 00:00:00 GMT"})
-        response({message = "Logout successful"})
+        ngx.header["Set-Cookie"] = buildCookieStr("session_id", "", { expires = "Thu, 01 Jan 1970 00:00:00 GMT" })
+        response({ message = "Logout successful" })
         return
     end
 
@@ -86,7 +120,7 @@ function _M.handle()
         -- CSRF 验证：仅对写操作
         if method == "POST" or method == "PUT" or method == "DELETE" then
             if not auth.validateCsrf() then
-                response({message = "CSRF token invalid"}, 403)
+                response({ message = "CSRF token invalid" }, 403)
                 return
             end
         end
@@ -106,7 +140,7 @@ function _M.handle()
     -- 重载配置接口
     elseif uri == "/api/reload-config" and method == "POST" then
         local success, message = api.reloadConfig()
-        response({success = success, message = message})
+        response({ success = success, message = message })
 
     -- IP黑名单管理接口
     elseif uri == "/api/blacklist" then
@@ -116,19 +150,19 @@ function _M.handle()
         elseif method == "POST" then
             local data = getRequestBody()
             if not data or not data.ip then
-                response({message = "Invalid request"}, 400)
+                response({ message = "Invalid request" }, 400)
                 return
             end
             local success = api.addToBlackList(data.ip)
-            response({success = success})
+            response({ success = success })
         elseif method == "DELETE" then
             local data = getRequestBody()
             if not data or not data.ip then
-                response({message = "Invalid request"}, 400)
+                response({ message = "Invalid request" }, 400)
                 return
             end
             local success = api.removeFromBlackList(data.ip)
-            response({success = success})
+            response({ success = success })
         end
 
     -- IP白名单管理接口
@@ -139,19 +173,19 @@ function _M.handle()
         elseif method == "POST" then
             local data = getRequestBody()
             if not data or not data.ip then
-                response({message = "Invalid request"}, 400)
+                response({ message = "Invalid request" }, 400)
                 return
             end
             local success = api.addToWhiteList(data.ip)
-            response({success = success})
+            response({ success = success })
         elseif method == "DELETE" then
             local data = getRequestBody()
             if not data or not data.ip then
-                response({message = "Invalid request"}, 400)
+                response({ message = "Invalid request" }, 400)
                 return
             end
             local success = api.removeFromWhiteList(data.ip)
-            response({success = success})
+            response({ success = success })
         end
 
     -- 规则配置接口
@@ -160,33 +194,37 @@ function _M.handle()
             local rules = api.getRules()
             response(rules)
         end
-    elseif string.match(uri, "^/api/rules/([^/]+)$") then
-        local file = string.match(uri, "^/api/rules/([^/]+)$")
+    elseif string.match(uri, "^/api/rules/([a-zA-Z0-9_]+%.lua)$") then
+        local file = string.match(uri, "^/api/rules/([a-zA-Z0-9_]+%.lua)$")
         if method == "GET" then
             local content = api.getRuleContent(file)
             if content then
-                response({content = content})
+                response({ content = content })
             else
-                response({message = "Rule file not found"}, 404)
+                response({ message = "Rule file not found" }, 404)
             end
         elseif method == "PUT" then
             local data = getRequestBody()
             if not data then
-                response({message = "Invalid request"}, 400)
+                response({ message = "Invalid request" }, 400)
                 return
             end
-            
+
             if data.enabled ~= nil then
-                local success = api.switchRule(file,data.enabled)
-                response({success = success})
+                local success = api.switchRule(file, data.enabled)
+                response({ success = success })
                 return
             end
             if data.content ~= nil then
                 local success = api.updateRule(file, data.content)
-                response({success = success})
+                if not success then
+                    response({ message = "Invalid rule syntax or update failed", success = false }, 400)
+                    return
+                end
+                response({ success = true })
                 return
             end
-            response({message = "Invalid request"}, 400)
+            response({ message = "Invalid request" }, 400)
         end
 
     -- 日志查看接口
@@ -205,14 +243,14 @@ function _M.handle()
         if method == "GET" then
             local args = ngx.req.get_uri_args()
             if not args.file then
-                response({message = "Missing file parameter"}, 400)
+                response({ message = "Missing file parameter" }, 400)
                 return
             end
             local content = api.readFile(args.file)
             if content then
-                response({content = content})
+                response({ content = content })
             else
-                response({message = "File not found or access denied: " .. args.file}, 404)
+                response({ message = "File not found or access denied: " .. tostring(args.file) }, 404)
             end
         end
 
@@ -221,20 +259,20 @@ function _M.handle()
         if method == "POST" then
             local data = getRequestBody()
             if not data or not data.file or not data.content then
-                response({message = "Missing file or content parameter"}, 400)
+                response({ message = "Missing file or content parameter" }, 400)
                 return
             end
             local success = api.saveFile(data.file, data.content)
             if success then
-                response({message = "File saved successfully", success = true})
+                response({ message = "File saved successfully", success = true })
             else
-                response({message = "Failed to save file or access denied"}, 500)
+                response({ message = "Failed to save file or access denied" }, 500)
             end
         end
 
     -- 404错误
     else
-        response({message = "Not Found"}, 404)
+        response({ message = "Not Found" }, 404)
     end
 
     -- 刷新会话和CSRF Token过期时间

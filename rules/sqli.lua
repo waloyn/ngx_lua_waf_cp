@@ -45,12 +45,12 @@ local _M = {
       confidence = 3
     },
     {
-      pattern = [[ (?:\sor\s|\sand\s)[\w]+\s*=\s*[\w'"]+  ]],
+      pattern = [[ \b(?:or|and)\s+[\w'"]+\s*=\s*[\w'"]+ ]],
       name = "Boolean Logic SQL Injection",
       confidence = 2
     },
     {
-      pattern = [[ (?:\sunion\s|\sselect\s|\sinsert\s|\supdate\s|\sdelete\s|\sdrop\s|\salter\s) ]],
+      pattern = [[ \b(?:union\s+all\s+select|union\s+select|select\s+[\w\*]+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|drop\s+(?:table|database)|alter\s+table)\b ]],
       name = "SQL Keywords",
       confidence = 2
     },

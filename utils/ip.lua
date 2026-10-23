@@ -15,30 +15,46 @@ local insert = table.insert
 -- MaxMind GeoIP2 数据库实例
 local geo = nil
 local geo_init_tried = false
- -- 去除字符串两端空白字符的 trim 函数
- local function trim(s)
+-- 去除字符串两端空白字符的 trim 函数
+local function trim(s)
+    if type(s) ~= "string" then return "" end
     return (s:gsub("^%s*(.-)%s*$", "%1"))
 end
+
+-- 提取首个非空 IP（兼容 table 类型的同名多 Header 与逗号分隔链）
+local function extractFirstIP(raw)
+    if type(raw) == "table" then
+        raw = raw[1]
+    end
+    if type(raw) ~= "string" or #raw == 0 then
+        return nil
+    end
+    local idx = find(raw, ",", 1, true)
+    if idx and idx > 0 then
+        raw = sub(raw, 1, idx - 1)
+    end
+    raw = trim(raw)
+    if #raw > 0 then
+        return raw
+    end
+    return nil
+end
+
 function _M.getClientIP()
-    local ips = {
-        ngx.var.http_x_forwarded_for,
-        ngx.var.remote_addr,
-        ngx.req.get_headers()["X_FORWARDED_FOR"],
-        ngx.req.get_headers()["x_real_ip"]
-    }
+    local remote_addr = ngx.var.remote_addr or "unknown"
 
-    for _, ip in pairs(ips) do
-        if ip and #ip > 0 then
-            local idx = find(ip, ",")
-            if idx and idx > 0 then
-                ip = sub(ip, 1, idx - 1)
-            end
-
-            return trim(ip)
+    -- 仅当显式开启 trust_proxy 且直接来源为内网/本机受信任代理时，才解析代理转发头，防止客户端伪造 X-Forwarded-For 绕过 WAF
+    if WAF_CONFIG and WAF_CONFIG["trust_proxy"] == "on" and _M.isPrivateIP(remote_addr) then
+        local headers = ngx.req.get_headers()
+        local forwarded = extractFirstIP(ngx.var.http_x_forwarded_for)
+            or extractFirstIP(headers["X-Forwarded-For"])
+            or extractFirstIP(headers["x-real-ip"])
+        if forwarded then
+            return forwarded
         end
     end
 
-    return "unknown"
+    return trim(remote_addr)
 end
 
 -- 是否内网IP
@@ -83,26 +99,84 @@ end
 local bit = require("bit")
 
 function _M.ip2number(ip)
-    local o1, o2, o3, o4 = ip:match("(%d+)%.(%d+)%.(%d+)%.(%d+)")
-    return 2^24*o1 + 2^16*o2 + 2^8*o3 + o4
+    if type(ip) ~= "string" then
+        return nil
+    end
+    local o1, o2, o3, o4 = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    o1, o2, o3, o4 = tonumber(o1), tonumber(o2), tonumber(o3), tonumber(o4)
+    if not o1 or not o2 or not o3 or not o4 then
+        return nil
+    end
+    if o1 > 255 or o2 > 255 or o3 > 255 or o4 > 255 then
+        return nil
+    end
+    return 16777216 * o1 + 65536 * o2 + 256 * o3 + o4
 end
 
 function _M.number2ip(number)
-    local o1 = bit.rshift(number, 24) % 256
-    local o2 = bit.rshift(number, 16) % 256
-    local o3 = bit.rshift(number, 8) % 256
+    local o1 = math.floor(number / 16777216) % 256
+    local o2 = math.floor(number / 65536) % 256
+    local o3 = math.floor(number / 256) % 256
     local o4 = number % 256
     return string.format("%d.%d.%d.%d", o1, o2, o3, o4)
 end
 
-function _M.parseCidr(cidr)
-    local ip, prefix = cidr:match("(%d+%.%d+%.%d+%.%d+)/(%d+)")
-    local start_ip = _M.ip2number(ip)
-    local num_ips = bit.lshift(1, 32 - prefix)
+-- 解析 CIDR 为数值区间（O(1) 空间，支持 /0 ~ /32 任意网段，避免展开成百万级字符串导致 OOM）
+function _M.parseCidrRange(cidr)
+    if type(cidr) ~= "string" then
+        return nil
+    end
+    local ip, prefix_str = cidr:match("^(%d+%.%d+%.%d+%.%d+)/(%d+)$")
+    local prefix = tonumber(prefix_str)
+    if not ip or not prefix or prefix < 0 or prefix > 32 then
+        return nil
+    end
+    local ip_num = _M.ip2number(ip)
+    if not ip_num then
+        return nil
+    end
+    local size = 2 ^ (32 - prefix)
+    local start_ip = math.floor(ip_num / size) * size
+    local end_ip = start_ip + size - 1
+    return {
+        cidr = cidr,
+        start_ip = start_ip,
+        end_ip = end_ip,
+        count = size
+    }
+end
 
+-- 判断 IP 是否落在任一 CIDR 数值区间内
+function _M.isIpInCidrs(ip, cidrRanges)
+    if not ip or not cidrRanges or #cidrRanges == 0 then
+        return false
+    end
+    local ip_num = _M.ip2number(ip)
+    if not ip_num then
+        return false
+    end
+    for i = 1, #cidrRanges do
+        local r = cidrRanges[i]
+        if ip_num >= r.start_ip and ip_num <= r.end_ip then
+            return true
+        end
+    end
+    return false
+end
+
+-- 兼容保留：仅对小网段（>= /24）展开单 IP 列表，防止大网段触发 OOM
+function _M.parseCidr(cidr)
+    local range = _M.parseCidrRange(cidr)
+    if not range then
+        return {}
+    end
+    if range.count > 256 then
+        ngx.log(ngx.WARN, "parseCidr: CIDR block too large to expand into individual IPs: ", cidr)
+        return {}
+    end
     local ips = {}
-    for i = 0, num_ips - 1 do
-        table.insert(ips,  _M.number2ip(start_ip + i))
+    for i = 0, range.count - 1 do
+        insert(ips, _M.number2ip(range.start_ip + i))
     end
     return ips
 end

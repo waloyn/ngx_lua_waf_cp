@@ -1,53 +1,56 @@
 local _M = {}
 
--- function _M.ensureDirExists(path)
---     local ok, err = os.execute('mkdir "' .. path .. '"')
---     if not ok then
---         ngx.log(ngx.ERR, "Failed to create directory: ", path, " - ", err)
---         return false
---     end
---     return true
--- end
+-- 进程级已创建目录缓存，避免 Windows 下对目录调用 io.open(p, "r") 恒返回 Permission denied 导致每次写文件都派生 cmd.exe
+local ensured_dirs = {}
 
-function _M.ensureDirExists(path)
-    -- 判断当前操作系统
-    local is_windows = package.config:sub(1, 1) == "\\"
-    
-    -- 检查路径是否存在
-    local function path_exists(p)
-        local f = io.open(p, "r")
-        if f then
-            f:close()
-            return true
-        else
-            return false
-        end
+-- 校验路径是否安全（禁止命令注入元字符）
+local function isSafePath(path)
+    if type(path) ~= "string" or path == "" then
+        return false
     end
-
-    -- 如果路径已存在，直接返回
-    if path_exists(path) then
-        return true  -- 路径已存在
+    if path:find('[&|;`$><"%c]') then
+        return false
     end
-
-    -- 创建目录
-    local command
-    if is_windows then
-        command = 'mkdir "' .. path .. '"'
-    else
-        command = 'mkdir -p "' .. path .. '"'
-    end
-
-    -- 执行创建目录的命令
-    local result = os.execute(command)
-    return result == true or result == 0  -- 成功返回 true
+    return true
 end
 
+function _M.ensureDirExists(path)
+    if not isSafePath(path) then
+        ngx.log(ngx.ERR, "Unsafe directory path rejected: ", tostring(path))
+        return false
+    end
+
+    local is_windows = package.config:sub(1, 1) == "\\"
+    local norm_path = is_windows and path:gsub("/", "\\") or path:gsub("\\", "/")
+    norm_path = norm_path:gsub("[\\/]+$", "")
+
+    if ensured_dirs[norm_path] then
+        return true
+    end
+
+    local command
+    if is_windows then
+        -- if not exist 避免目录已存在时报错，且仅在首次未命中缓存时执行一次
+        command = 'if not exist "' .. norm_path .. '" mkdir "' .. norm_path .. '"'
+    else
+        command = 'mkdir -p "' .. norm_path .. '"'
+    end
+
+    local result = os.execute(command)
+    local ok = (result == true or result == 0)
+    if ok then
+        ensured_dirs[norm_path] = true
+    end
+    return ok
+end
 
 function _M.writeFile(path, filename, value)
-    local log_path = WAF_CONFIG["log_path"] .. "/" .. path
+    local base_path = (WAF_CONFIG and WAF_CONFIG["log_path"]) or (CURRENT_PATH .. "../logs/waf")
+    local log_path = base_path .. "/" .. path
 
-    -- 确保目录存在
-    _M.ensureDirExists(log_path)
+    if not _M.ensureDirExists(log_path) then
+        return false
+    end
 
     local file_path = log_path .. "/" .. filename
     local file, err = io.open(file_path, "ab")
@@ -63,27 +66,36 @@ end
 
 function _M.getFiles(path)
     local files = {}
-    
-    -- 确保路径以反斜杠结尾
-    if not path:match('\\$') then
-        path = path .. '\\'
-    end
-    
-    -- 使用dir命令获取文件列表
-    local cmd = 'dir /b /a-d "' .. path .. '"'
-    local handle = io.popen(cmd)
-    if not handle then
-        ngx.log(ngx.ERR, "Failed to execute dir command")
+    if not isSafePath(path) then
+        ngx.log(ngx.ERR, "Unsafe path in getFiles: ", tostring(path))
         return files
     end
-    
-    -- 读取命令输出
+
+    local is_windows = package.config:sub(1, 1) == "\\"
+    local cmd
+    if is_windows then
+        local win_path = path:gsub("/", "\\")
+        if not win_path:match("\\$") then
+            win_path = win_path .. "\\"
+        end
+        cmd = 'dir /b /a-d "' .. win_path .. '"'
+    else
+        cmd = 'ls -1 "' .. path .. '"'
+    end
+
+    local handle = io.popen(cmd)
+    if not handle then
+        ngx.log(ngx.ERR, "Failed to execute directory listing command")
+        return files
+    end
+
     for file in handle:lines() do
-        if file ~= "." and file ~= ".." then
+        file = file:gsub("[\r\n]+", "")
+        if file ~= "" and file ~= "." and file ~= ".." then
             table.insert(files, file)
         end
     end
-    
+
     handle:close()
     return files
 end

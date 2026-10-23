@@ -2,7 +2,7 @@ local _M = {
     name = "Ldap Injection",
     desc = "检测是否存在可能绕过LDAP安全控制的字符串形式。",
     level = "high",
-    position = "uri,body",
+    position = "uri,body,cookie,user-agent,headers",
     rules = {
         {
             pattern = [[\$\{jndi:(?:ldap|ldaps|rmi|dns|nis|nds|corba|iiop):]],

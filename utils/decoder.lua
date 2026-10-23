@@ -48,6 +48,33 @@ end
 
 local ENTITY_PATTERN = [[&(?:#x([0-9a-fA-F]+)|#(\d+)|([a-zA-Z][a-zA-Z0-9]{1,9}));]]
 
+-- 单轮 HTML 实体解码
+local function html_entity_unescape_once(cur)
+    local replaced, _, err = ngx.re.gsub(cur, ENTITY_PATTERN, function(m)
+        local code
+        if m[1] and m[1] ~= "" then
+            code = tonumber(m[1], 16)
+        elseif m[2] and m[2] ~= "" then
+            code = tonumber(m[2])
+        elseif m[3] and m[3] ~= "" then
+            return NAMED_ENTITIES[m[3]:lower()] or m[0]
+        end
+        if not code or code < 0 or code > 0x10FFFF then
+            return m[0]
+        end
+        if code <= 255 then
+            return string.char(code)
+        end
+        local ok, ch = pcall(codepointToUtf8, code)
+        return ok and ch or m[0]
+    end, "jo")
+    if not replaced then
+        ngx.log(ngx.ERR, "html entity decode error: ", err)
+        return nil
+    end
+    return replaced
+end
+
 -- 递归 HTML 实体解码：支持 &#NNN; / &#xNN; / 常见命名实体
 -- @return decoded 或 nil
 function _M.html_entity_unescape_recursive(input, max_attempts)
@@ -56,26 +83,8 @@ function _M.html_entity_unescape_recursive(input, max_attempts)
     local attempts = 0
     while cur ~= prev and attempts < max_attempts do
         prev = cur
-        local replaced, _, err = ngx.re.gsub(cur, ENTITY_PATTERN, function(m)
-            local code
-            if m[1] and m[1] ~= "" then
-                code = tonumber(m[1], 16)
-            elseif m[2] and m[2] ~= "" then
-                code = tonumber(m[2])
-            elseif m[3] and m[3] ~= "" then
-                return NAMED_ENTITIES[m[3]] or m[0]
-            end
-            if not code or code < 0 or code > 0x10FFFF then
-                return m[0]
-            end
-            if code <= 255 then
-                return string.char(code)
-            end
-            local ok, ch = pcall(codepointToUtf8, code)
-            return ok and ch or m[0]
-        end, "jo")
+        local replaced = html_entity_unescape_once(cur)
         if not replaced then
-            ngx.log(ngx.ERR, "html entity decode error: ", err)
             return nil
         end
         cur = replaced
@@ -87,12 +96,30 @@ function _M.html_entity_unescape_recursive(input, max_attempts)
     return cur
 end
 
--- 一次性归一化：先 URL 再 HTML 实体
--- @return 归一化字符串，或 nil（任一阶段超限）
+-- 不动点交替归一化：在同一循环内交替执行 URL 解码与 HTML 实体解码，防止 &#x25;3c 等混合编码绕过
+-- @return 归一化字符串，或 nil（解码轮次达到上限视为恶意嵌套）
 function _M.unescape(input, max_attempts)
-    local s = _M.url_unescape_recursive(input, max_attempts)
-    if s == nil then return nil end
-    return _M.html_entity_unescape_recursive(s, max_attempts)
+    if type(input) ~= "string" or input == "" then
+        return input or ""
+    end
+    max_attempts = tonumber(max_attempts) or 10
+    local cur = input
+    local prev = ""
+    local attempts = 0
+    while cur ~= prev and attempts < max_attempts do
+        prev = cur
+        local u = ngx.unescape_uri(cur)
+        local h = html_entity_unescape_once(u)
+        if not h then
+            return nil
+        end
+        cur = h
+        attempts = attempts + 1
+    end
+    if attempts >= max_attempts then
+        return nil
+    end
+    return cur
 end
 
 return _M
