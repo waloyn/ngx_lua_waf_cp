@@ -41,56 +41,68 @@ local function validateRuleCode(code)
     return true
 end
 
--- 获取统计数据
-function _M.getStats()
-    local countCache = require("cache"):new("nova_waf_count")
-    local stats = {
-        total_requests = tonumber(countCache:cacheGet("count_reqCount")) or 0,
-        blocked_requests = tonumber(countCache:cacheGet("count_reqDenyCount")) or 0,
-        blocked_ips = (BLACK_IPS and #BLACK_IPS) or 0,
-        os_distribution = {},
-        status_distribution = {},
-        host_distribution = {},
-        attack_types = {},
-        top_ips = {}
-    }
+-- 内部辅助：合并一条统计计数至 stats 结构（统一操作系统 unknown/Unknown 大小写并累加）
+local function mergeStatKey(stats, ip_counts, key, val)
+    val = tonumber(val) or 0
+    if val == 0 then return end
 
-    -- 获取所有统计数据的key
-    countCache:getAllPrefixKeys("count_", function(key)
-        local val = tonumber(countCache:cacheGet(key)) or 0
+    local sub_key = key:match("^count_(.+)$") or key:match("^hourly_(.+)$")
+    if not sub_key then return end
 
-        -- 统计操作系统分布
-        local os_match = key:match("^count_os_(.+)$")
-        if os_match then
-            stats.os_distribution[os_match] = val
+    if sub_key == "reqCount" then
+        stats.total_requests = stats.total_requests + val
+        return
+    end
+
+    if sub_key == "reqDenyCount" then
+        stats.blocked_requests = stats.blocked_requests + val
+        return
+    end
+
+    -- 统计操作系统分布（合并 unknown 与 Unknown，统一格式为 Unknown）
+    local os_match = sub_key:match("^os_(.+)$")
+    if os_match then
+        if os_match:lower() == "unknown" then
+            os_match = "Unknown"
         end
+        stats.os_distribution[os_match] = (stats.os_distribution[os_match] or 0) + val
+        return
+    end
 
-        -- 统计状态码分布
-        local status_match = key:match("^count_status_(%d+)$")
-        if status_match then
-            stats.status_distribution[status_match] = val
-        end
+    -- 统计状态码分布
+    local status_match = sub_key:match("^status_(%d+)$")
+    if status_match then
+        stats.status_distribution[status_match] = (stats.status_distribution[status_match] or 0) + val
+        return
+    end
 
-        -- 统计域名访问分布
-        local host_match = key:match("^count_host_(.+)$")
-        if host_match then
-            stats.host_distribution[host_match] = val
-        end
+    -- 统计域名访问分布
+    local host_match = sub_key:match("^host_(.+)$")
+    if host_match then
+        stats.host_distribution[host_match] = (stats.host_distribution[host_match] or 0) + val
+        return
+    end
 
-        -- 统计攻击类型分布
-        local attack_match = key:match("^count_attack_(.+)$")
-        if attack_match then
-            stats.attack_types[attack_match] = val
-        end
+    -- 统计攻击类型分布
+    local attack_match = sub_key:match("^attack_(.+)$")
+    if attack_match then
+        stats.attack_types[attack_match] = (stats.attack_types[attack_match] or 0) + val
+        return
+    end
 
-        -- 统计IP访问
-        local ip_match = key:match("^count_ip_(.+)$")
-        if ip_match then
-            table.insert(stats.top_ips, { ip = ip_match, count = val })
-        end
-    end)
+    -- 统计IP访问
+    local ip_match = sub_key:match("^ip_(.+)$")
+    if ip_match then
+        ip_counts[ip_match] = (ip_counts[ip_match] or 0) + val
+        return
+    end
+end
 
-    -- 对IP访问量进行排序，只返回前20个
+-- 内部辅助：整理 IP Top 20 排序
+local function finalizeStats(stats, ip_counts)
+    for ip, count in pairs(ip_counts) do
+        table.insert(stats.top_ips, { ip = ip, count = count })
+    end
     table.sort(stats.top_ips, function(a, b) return a.count > b.count end)
     if #stats.top_ips > 20 then
         local top20 = {}
@@ -99,8 +111,113 @@ function _M.getStats()
         end
         stats.top_ips = top20
     end
-
     return stats
+end
+
+-- 获取统计数据（默认：进程启动以来的总计；支持快捷筛选项：hour / day / week / month）
+function _M.getStats(period)
+    local countCache = require("cache"):new("nova_waf_count")
+    local p = (period or "process"):lower()
+    if p == "" or p == "all" or p == "total" then
+        p = "process"
+    elseif p == "today" then
+        p = "day"
+    elseif p == "7d" then
+        p = "week"
+    elseif p == "30d" then
+        p = "month"
+    end
+
+    local stats = {
+        total_requests = 0,
+        blocked_requests = 0,
+        blocked_ips = (BLACK_IPS and #BLACK_IPS) or 0,
+        os_distribution = {},
+        status_distribution = {},
+        host_distribution = {},
+        attack_types = {},
+        top_ips = {},
+        period = p
+    }
+    local ip_counts = {}
+
+    -- 1. 当前小时统计
+    if p == "hour" then
+        countCache:getAllPrefixKeys("hourly_", function(key)
+            local val = tonumber(countCache:cacheGet(key)) or 0
+            mergeStatKey(stats, ip_counts, key, val)
+        end)
+        local direct_req = tonumber(countCache:cacheGet("hourly_reqCount")) or 0
+        if stats.total_requests < direct_req then stats.total_requests = direct_req end
+        local direct_deny = tonumber(countCache:cacheGet("hourly_reqDenyCount")) or 0
+        if stats.blocked_requests < direct_deny then stats.blocked_requests = direct_deny end
+        return finalizeStats(stats, ip_counts)
+    end
+
+    -- 2. 进程启动以来的总计（默认项，永不按小时清空）
+    if p == "process" then
+        countCache:getAllPrefixKeys("count_", function(key)
+            local val = tonumber(countCache:cacheGet(key)) or 0
+            mergeStatKey(stats, ip_counts, key, val)
+        end)
+        local direct_req = tonumber(countCache:cacheGet("count_reqCount")) or 0
+        if stats.total_requests < direct_req then stats.total_requests = direct_req end
+        local direct_deny = tonumber(countCache:cacheGet("count_reqDenyCount")) or 0
+        if stats.blocked_requests < direct_deny then stats.blocked_requests = direct_deny end
+        return finalizeStats(stats, ip_counts)
+    end
+
+    -- 3. 按日/周/月聚合（读取归档磁盘 JSON + 内存中当前小时数据）
+    local num_days = 1
+    if p == "week" then
+        num_days = 7
+    elseif p == "month" then
+        num_days = 30
+    end
+
+    local base_path = (WAF_CONFIG and WAF_CONFIG["log_path"]) or (CURRENT_PATH .. "../logs/waf")
+    local count_dir = base_path .. "/count/"
+    local cjson = require "cjson.safe"
+    local now_ts = ngx.time()
+
+    for i = 0, num_days - 1 do
+        local date_str = os.date("%Y-%m-%d", now_ts - (i * 86400))
+        local day_dir = count_dir .. date_str
+        for h = 0, 23 do
+            local fn = string.format("%s/%02d.json", day_dir, h)
+            local f = io.open(fn, "r")
+            if not f then
+                fn = string.format("%s/%d.json", day_dir, h)
+                f = io.open(fn, "r")
+            end
+            if f then
+                local content = f:read("*a")
+                f:close()
+                if content and content ~= "" then
+                    for block in content:gmatch("%b{}") do
+                        local obj = cjson.decode(block)
+                        if type(obj) == "table" then
+                            for k, v in pairs(obj) do
+                                mergeStatKey(stats, ip_counts, k, v)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 加上当前小时内存中未落盘的动态计数
+    countCache:getAllPrefixKeys("hourly_", function(key)
+        local val = tonumber(countCache:cacheGet(key)) or 0
+        mergeStatKey(stats, ip_counts, key, val)
+    end)
+    local direct_req = tonumber(countCache:cacheGet("hourly_reqCount")) or 0
+    if stats.total_requests < direct_req then stats.total_requests = direct_req end
+    local direct_deny = tonumber(countCache:cacheGet("hourly_reqDenyCount")) or 0
+    if stats.blocked_requests < direct_deny then stats.blocked_requests = direct_deny end
+
+    return finalizeStats(stats, ip_counts)
 end
 
 -- 获取攻击类型分布（使用已定义的 nova_waf_count 共享内存字典）

@@ -128,7 +128,9 @@ function _M.handle()
 
     -- 统计数据接口
     if uri == "/api/stats" and method == "GET" then
-        local stats = api.getStats()
+        local args = ngx.req.get_uri_args()
+        local period = args and args.period
+        local stats = api.getStats(period)
         response(stats)
     elseif uri == "/api/stats/attack_distribution" and method == "GET" then
         local distribution = api.getAttackDistribution()

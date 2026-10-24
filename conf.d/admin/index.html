@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>WAF 管理控制台</title>
     <!-- 本地引入 Tailwind CSS 3 独立运行时 -->
     <script src="static/js/tailwind.min.js"></script>
@@ -25,7 +28,7 @@
             }
         };
     </script>
-    <link rel="stylesheet" href="static/css/styles.css">
+    <link rel="stylesheet" href="static/css/styles.css?v=20261024_02">
     <script src="static/js/vue.global.prod.js"></script>
     <script src="static/js/chart.min.js"></script>
 </head>
@@ -203,20 +206,37 @@
 
                 <!-- 1. 仪表盘 (Dashboard) -->
                 <section v-show="currentPage === 'dashboard'" class="space-y-6">
-                    <!-- 页面标题 -->
-                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-1">
+                    <!-- 页面标题与筛选控制栏 -->
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1">
                         <div>
-                            <h1 class="text-xl font-bold tracking-tight text-slate-900">系统仪表盘</h1>
+                            <div class="flex items-center gap-2.5">
+                                <h1 class="text-xl font-bold tracking-tight text-slate-900">系统仪表盘</h1>
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    WAF 引擎防护中
+                                </span>
+                            </div>
                             <p class="text-xs text-slate-500 mt-1">实时防护数据流、攻击拦截及流量画像</p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-                                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                WAF 引擎防护中
-                            </span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <!-- 快捷时间筛选组 -->
+                            <div class="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 text-xs shadow-inner">
+                                <button 
+                                    v-for="item in periodOptions"
+                                    :key="item.key"
+                                    type="button"
+                                    @click="changeStatsPeriod(item.key)" 
+                                    class="cursor-pointer px-2.5 py-1 rounded-md font-medium transition-all"
+                                    :class="statsPeriod === item.key ? 'bg-white text-indigo-600 shadow-sm font-semibold' : 'text-slate-600 hover:text-slate-900'"
+                                >
+                                    {{ item.label }}
+                                </button>
+                            </div>
                             <button 
+                                type="button"
                                 @click="loadDashboardData(false)" 
-                                class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition shadow-xs"
+                                class="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition shadow-sm"
+                                title="刷新数据"
                             >
                                 <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -235,7 +255,7 @@
                                 <div class="text-2xl font-bold tracking-tight text-slate-900">
                                     {{ formatNumber(dashboardStats.totalRequests) }}
                                 </div>
-                                <div class="text-[11px] text-slate-400">系统累计接入流量</div>
+                                <div class="text-[11px] text-slate-400">{{ statsPeriodLabel }}接入流量</div>
                             </div>
                             <div class="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,7 +271,7 @@
                                 <div class="text-2xl font-bold tracking-tight text-rose-600">
                                     {{ formatNumber(dashboardStats.blockedRequests) }}
                                 </div>
-                                <div class="text-[11px] text-rose-500 font-medium">触发安全规则阻断</div>
+                                <div class="text-[11px] text-rose-500 font-medium">{{ statsPeriodLabel }}触发规则阻断</div>
                             </div>
                             <div class="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -267,7 +287,7 @@
                                 <div class="text-2xl font-bold tracking-tight text-slate-900">
                                     {{ dashboardStats.blockRate }}
                                 </div>
-                                <div class="text-[11px] text-slate-400">拦截 / 总请求占比</div>
+                                <div class="text-[11px] text-slate-400">{{ statsPeriodLabel }}拦截 / 总请求占比</div>
                             </div>
                             <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -301,7 +321,7 @@
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
                             <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                                 <h3 class="text-sm font-semibold text-slate-900">操作系统类型分布</h3>
-                                <span class="text-xs text-slate-400">客户端特征</span>
+                                <span class="text-xs text-slate-400">客户端特征 ({{ statsPeriodLabel }})</span>
                             </div>
                             <div class="h-64 sm:h-72 relative pt-4 flex-1">
                                 <canvas ref="systemTypeChart"></canvas>
@@ -312,7 +332,7 @@
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
                             <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                                 <h3 class="text-sm font-semibold text-slate-900">来源 IP 访问排行 TOP 10</h3>
-                                <span class="text-xs text-slate-400">高频来源</span>
+                                <span class="text-xs text-slate-400">高频来源 ({{ statsPeriodLabel }})</span>
                             </div>
                             <div class="h-64 sm:h-72 relative pt-4 flex-1">
                                 <canvas ref="topIpChart"></canvas>
@@ -323,7 +343,7 @@
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
                             <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                                 <h3 class="text-sm font-semibold text-slate-900">受保护 HOST 域名分布</h3>
-                                <span class="text-xs text-slate-400">站点流量</span>
+                                <span class="text-xs text-slate-400">站点流量 ({{ statsPeriodLabel }})</span>
                             </div>
                             <div class="h-64 sm:h-72 relative pt-4 flex-1">
                                 <canvas ref="hostChart"></canvas>
@@ -334,7 +354,7 @@
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
                             <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                                 <h3 class="text-sm font-semibold text-slate-900">HTTP 状态码分布</h3>
-                                <span class="text-xs text-slate-400">响应质量</span>
+                                <span class="text-xs text-slate-400">响应质量 ({{ statsPeriodLabel }})</span>
                             </div>
                             <div class="h-64 sm:h-72 relative pt-4 flex-1">
                                 <canvas ref="statusCodeChart"></canvas>
@@ -767,6 +787,6 @@
     </div>
 
     <!-- 主逻辑控制器 -->
-    <script src="static/js/app.js"></script>
+    <script src="static/js/app.js?v=20261024_02"></script>
 </body>
 </html>

@@ -356,6 +356,12 @@ mode = "protection"  # monitor/protection/off
 # 调试模式
 debug = "on"  # on/off
 
+# 代理与CDN配置
+trust_proxy = "off"   # 是否信任反向代理转发头（X-Forwarded-For / X-Real-IP）
+cdn_mode = "off"      # CDN加速模式开关（站点接入阿里ESA、Cloudflare等CDN时开启）
+cdn_header = ""       # 指定CDN真实IP请求头（留空自动识别：Ali-CDN-Real-IP、CF-Connecting-IP等）
+cdn_ips = ""          # 受信任CDN节点IP/CIDR网段（可选，多个逗号分隔）
+
 # 日志路径
 log_path = "e:/website/openresty/logs/waf"
 

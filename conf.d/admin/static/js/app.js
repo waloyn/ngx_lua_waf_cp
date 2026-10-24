@@ -19,6 +19,14 @@ createApp({
             },
             
             // Dashboard data
+            statsPeriod: 'process',
+            periodOptions: [
+                { key: 'process', label: '启动至今' },
+                { key: 'day', label: '日 (今日)' },
+                { key: 'week', label: '周 (7天)' },
+                { key: 'month', label: '月 (30天)' },
+                { key: 'hour', label: '当前小时' }
+            ],
             dashboardStats: {
                 totalRequests: 0,
                 blockedRequests: 0,
@@ -60,6 +68,18 @@ createApp({
                 '#eab308'  // Yellow
             ]
         };
+    },
+    computed: {
+        statsPeriodLabel() {
+            switch (this.statsPeriod) {
+                case 'day': return '今日';
+                case 'week': return '近7天';
+                case 'month': return '近30天';
+                case 'hour': return '当前小时';
+                case 'process':
+                default: return '启动至今';
+            }
+        }
     },
     methods: {
         toggleSidebar() {
@@ -175,9 +195,15 @@ createApp({
         },
 
         // --- Dashboard Methods ---
+        changeStatsPeriod(period) {
+            console.log('[WAF Dashboard] Switching stats period to:', period);
+            this.statsPeriod = period;
+            this.loadDashboardData(false);
+        },
         async loadDashboardData(silent = false) {
             try {
-                const stats = await this.apiRequest('/api/stats', {}, silent);
+                console.log('[WAF Dashboard] Fetching stats for period:', this.statsPeriod);
+                const stats = await this.apiRequest(`/api/stats?period=${encodeURIComponent(this.statsPeriod)}`, {}, silent);
                 if (!stats) return;
 
                 const totalReq = stats.total_requests || stats.totalRequests || 0;
@@ -195,6 +221,15 @@ createApp({
                 const statusCodes = stats.statusCodes || stats.status_codes || stats.status_distribution || {};
                 let topIps = stats.topIps || stats.top_ips || stats.topIp || {};
                 
+                // 操作系统统计：合并 unknown 与 Unknown
+                if (systemTypes['unknown'] !== undefined || systemTypes['Unknown'] !== undefined) {
+                    const mergedUnknown = (Number(systemTypes['unknown']) || 0) + (Number(systemTypes['Unknown']) || 0);
+                    delete systemTypes['unknown'];
+                    if (mergedUnknown > 0) {
+                        systemTypes['Unknown'] = mergedUnknown;
+                    }
+                }
+
                 if (Array.isArray(topIps)) {
                     const topIpsObj = {};
                     topIps.forEach(item => {
@@ -218,10 +253,11 @@ createApp({
                         this.drawPieChart('hostChart', hosts, 'HOST');
                         this.drawBarChart('statusCodeChart', statusCodes, '状态码');
                         
-                        const topIpsData = Object.entries(topIps)
+                        const topIpsData = {};
+                        Object.entries(topIps)
                             .sort((a, b) => b[1] - a[1])
                             .slice(0, 10)
-                            .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
+                            .forEach(([k, v]) => { topIpsData[k] = v; });
                         this.drawBarChart('topIpChart', topIpsData, '请求次数');
                     }
                 });
@@ -252,12 +288,13 @@ createApp({
 
             const labels = entries.map(([name]) => name);
             const values = entries.map(([, value]) => value);
+            const bgColors = labels.map((_, idx) => this.chartColors[idx % this.chartColors.length]);
 
             if (this.chartInstances[refName]) {
                 const chart = this.chartInstances[refName];
                 chart.data.labels = labels;
                 chart.data.datasets[0].data = values;
-                chart.data.datasets[0].backgroundColor = this.chartColors.slice(0, labels.length);
+                chart.data.datasets[0].backgroundColor = bgColors;
                 chart.update();
             } else {
                 this.chartInstances[refName] = markRaw(new Chart(canvas, {
@@ -266,7 +303,7 @@ createApp({
                         labels: labels,
                         datasets: [{
                             data: values,
-                            backgroundColor: this.chartColors.slice(0, labels.length),
+                            backgroundColor: bgColors,
                             borderWidth: 2,
                             borderColor: '#ffffff',
                             hoverOffset: 4

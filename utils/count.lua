@@ -9,6 +9,7 @@ local DYNAMIC_KEY_TTL = 86400
 function _M:new()
     local t = {
         KEY_PREFIX = "count_",
+        HOURLY_PREFIX = "hourly_",
         REQ_COUNT = "reqCount",
         REQ_DENY_COUNT = "reqDenyCount",
         LAST_DAY = "lastDay",
@@ -80,7 +81,7 @@ function _M:addReqCount(ip)
 
     -- 进行UA分析
     local ua = ngx.var.http_user_agent
-    local key = "os_unknown"
+    local key = "os_Unknown"
     if ua then
         if is_crawler(ua) then
             key = "os_crawler"
@@ -142,10 +143,12 @@ end
 
 function _M:save2Disk(lastDay, hour)
     local keysData = {}
-    self.cache:getAllPrefixKeys(self.KEY_PREFIX, function(key)
+    self.cache:getAllPrefixKeys(self.HOURLY_PREFIX, function(key)
         local val = tonumber(self.cache:cacheGet(key) or 0)
         self.cache:cacheDel(key)
-        keysData[key] = val
+        -- 将 hourly_ 转换为 count_ 保存至磁盘 JSON，保持与已有历史 JSON 格式完全一致
+        local diskKey = key:gsub("^" .. self.HOURLY_PREFIX, self.KEY_PREFIX)
+        keysData[diskKey] = val
     end)
 
     -- 每个小时的数据保存为JSON格式,存储为 count/20210101/01.json 的形式
@@ -155,7 +158,7 @@ function _M:save2Disk(lastDay, hour)
     local json = require "cjson.safe"
     local encoded = json.encode(keysData)
     if encoded then
-        localFile.writeFile(path, fileName, encoded)
+        localFile.writeFile(path, fileName, encoded, "wb")
     end
 end
 
@@ -201,8 +204,11 @@ function _M:Incr(key, expireTime)
         end
     end
 
-    -- 无论是否持有归档锁，当前请求的原子递增计数必须无条件执行，避免并发丢数
+    -- 无论是否持有归档锁，当前请求的原子递增计数：
+    -- 1. count_ 前缀作为进程启动以来的总计（保留在内存中，不被按小时删除）
     self.cache:cacheIncr(self.KEY_PREFIX .. key, 1, expireTime)
+    -- 2. hourly_ 前缀作为当前小时的独立统计（按小时归档落盘并清空）
+    self.cache:cacheIncr(self.HOURLY_PREFIX .. key, 1, expireTime or DYNAMIC_KEY_TTL)
 end
 
 return _M

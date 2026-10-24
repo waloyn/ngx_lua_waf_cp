@@ -44,7 +44,7 @@ function _M.ensureDirExists(path)
     return ok
 end
 
-function _M.writeFile(path, filename, value)
+function _M.writeFile(path, filename, value, mode)
     local base_path = (WAF_CONFIG and WAF_CONFIG["log_path"]) or (CURRENT_PATH .. "../logs/waf")
     local log_path = base_path .. "/" .. path
 
@@ -53,7 +53,7 @@ function _M.writeFile(path, filename, value)
     end
 
     local file_path = log_path .. "/" .. filename
-    local file, err = io.open(file_path, "ab")
+    local file, err = io.open(file_path, mode or "ab")
     if not file then
         ngx.log(ngx.ERR, "Failed to open file for writing: ", file_path, " - ", err)
         return false
