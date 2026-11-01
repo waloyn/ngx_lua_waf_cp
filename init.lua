@@ -15,6 +15,8 @@ WHITE_HOST_SET = {}
 BLACK_IP_SET = {}
 LOGGERS = {}
 DEBUG = false
+-- 名单热更新：跨 worker 变更信号所用的共享字典版本号键
+WAF_LISTS_VERSION_KEY = "__waf_lists_version"
 
 local function buildSet(list, set)
     for k in pairs(set) do set[k] = nil end
@@ -183,6 +185,49 @@ function load_hosts()
     ngx.log(ngx.INFO, "WAF white hosts: " .. #WHITE_HOST)
 
     buildSet(WHITE_HOST, WHITE_HOST_SET)
+end
+
+-- ============ 名单热更新（IP 黑白名单 / Host 白名单改动后立即生效） ============
+-- 每个 worker 拥有独立的 Lua VM，管理员在某个 worker 内改写名单文件后，其余 worker 的内存副本不会自动同步。
+-- 这里借助 nova_waf 共享字典维护一个单调递增的版本号：写入方 incr 广播变更，各 worker 在请求热路径比对版本号，
+-- 发现变化才重新读取磁盘（O(1) 共享字典读取，零文件 IO 常态开销）。
+local LISTS_VERSION = nil  -- 当前 worker 已应用的名单版本号
+
+-- 广播名单变更（由 api.lua 在保存名单后调用），返回是否成功
+function notify_lists_changed()
+    local dict = ngx and ngx.shared and ngx.shared["nova_waf"]
+    if not dict then
+        return false
+    end
+    local ver, err = dict:incr(WAF_LISTS_VERSION_KEY, 1, 0)
+    if not ver then
+        ngx.log(ngx.ERR, "failed to bump lists version: ", err)
+        return false
+    end
+    return true
+end
+
+-- 请求热路径调用：仅当共享版本号变化时才重载名单，实现跨 worker 立即生效
+function ensure_lists_fresh()
+    local dict = ngx and ngx.shared and ngx.shared["nova_waf"]
+    if not dict then
+        return
+    end
+    local ver = dict:get(WAF_LISTS_VERSION_KEY)
+    if ver == nil or ver == LISTS_VERSION then
+        return
+    end
+    -- 重载失败时不推进版本号，下次请求自动重试，避免瞬时 IO 异常清空名单导致防护失效
+    local ok, err = pcall(function()
+        load_ips()
+        load_hosts()
+    end)
+    if ok then
+        LISTS_VERSION = ver
+        ngx.log(ngx.INFO, "WAF lists hot-reloaded, version: ", tostring(ver))
+    else
+        ngx.log(ngx.ERR, "failed to hot-reload WAF lists: ", tostring(err))
+    end
 end
 
 -- 加载规则

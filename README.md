@@ -83,10 +83,19 @@
 - **黑名单**: 直接拦截访问
 - **动态封禁**: 基于攻击行为自动封禁
 - **CIDR支持**: 支持IP段配置 (如 192.168.1.0/24)
+- **热更新**: 通过管理后台保存黑/白名单后立即生效,无需重载 nginx
 
 #### 域名管理
 - 域名白名单机制
 - 支持完整域名匹配
+- 保存后立即生效,无需重载 nginx
+
+#### 名单热更新机制
+- 各 worker 拥有独立 Lua VM,名单内存副本互不可见
+- `nova_waf` 共享字典维护单调递增版本号 `__waf_lists_version`
+- 管理后台保存名单后由 `notify_lists_changed()` 做 `incr` 广播
+- 每个请求在 `Waf:process()` 入口调用 `ensure_lists_fresh()`,版本号变化才重读磁盘,常态仅一次 O(1) 共享字典读取
+- 重载失败不推进本地版本号,下次请求自动重试,避免瞬时 IO 异常清空名单
 
 ### 3. 工作模式
 
@@ -323,9 +332,9 @@ csrf:{session_id}   # CSRF Token (管理后台)
 - `GET /api/stats/request_trend` - 请求趋势
 
 #### 配置管理
-- `POST /api/reload-config` - 重载配置
+- `POST /api/reload-config` - 重载配置(规则与 waf.conf 变更需调用;名单变更无需调用)
 
-#### IP管理
+#### IP管理(变更后立即生效,无需重载)
 - `GET /api/blacklist` - 获取黑名单
 - `POST /api/blacklist` - 添加黑名单
 - `DELETE /api/blacklist` - 删除黑名单
@@ -343,7 +352,7 @@ csrf:{session_id}   # CSRF Token (管理后台)
 
 #### 文件操作
 - `GET /api/read-file?file=` - 读取文件
-- `POST /api/save-file` - 保存文件
+- `POST /api/save-file` - 保存文件(`blackIp` / `whiteIp` / `whitehost` 保存后立即生效;`waf.conf` 需重载)
 
 ## 配置说明
 

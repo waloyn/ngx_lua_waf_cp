@@ -473,7 +473,7 @@
                 <section v-show="currentPage === 'blackwhitelist'" class="space-y-6">
                     <div>
                         <h1 class="text-xl font-bold tracking-tight text-slate-900">黑白名单访问控制</h1>
-                        <p class="text-xs text-slate-500 mt-1">精确配置 IP 黑名单阻断、信任 IP 免检以及 HOST 域名白名单绕行</p>
+                        <p class="text-xs text-slate-500 mt-1">精确配置 IP 黑名单阻断、信任 IP 免检以及 HOST 域名白名单绕行，保存后即时生效，无需重载配置</p>
                     </div>
 
                     <!-- 3 栏响应式网格 -->
@@ -500,7 +500,7 @@
                                     spellcheck="false"
                                 ></textarea>
                                 <div class="mt-2.5 text-[11px] text-slate-400">
-                                    💡 支持单个 IPv4 地址或 CIDR 掩码段格式
+                                    💡 支持单个 IPv4 地址或 CIDR 掩码段格式，保存后即时生效
                                 </div>
                             </div>
                         </div>
@@ -527,7 +527,7 @@
                                     spellcheck="false"
                                 ></textarea>
                                 <div class="mt-2.5 text-[11px] text-slate-400">
-                                    💡 内部信任 IP、堡垒机或测试节点推荐填入
+                                    💡 内部信任 IP、堡垒机或测试节点推荐填入，保存后即时生效
                                 </div>
                             </div>
                         </div>
@@ -554,7 +554,7 @@
                                     spellcheck="false"
                                 ></textarea>
                                 <div class="mt-2.5 text-[11px] text-slate-400">
-                                    💡 填入的 HOST 域名访问将直接绕过所有 WAF 规则
+                                    💡 填入的 HOST 域名访问将直接绕过所有 WAF 规则，保存后即时生效
                                 </div>
                             </div>
                         </div>
@@ -787,6 +787,6 @@
     </div>
 
     <!-- 主逻辑控制器 -->
-    <script src="static/js/app.js?v=20261024_02"></script>
+    <script src="static/js/app.js?v=20261101_01"></script>
 </body>
 </html>

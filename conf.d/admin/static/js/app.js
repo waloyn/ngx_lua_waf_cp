@@ -498,7 +498,13 @@ createApp({
                     method: 'POST',
                     body: JSON.stringify({ file, content })
                 });
-                this.showToast(`文件 ${file} 已成功保存`, 'success');
+                // IP 黑白名单 / Host 白名单由后端广播热更新，保存即生效；waf.conf 仍需重载
+                const hotReloadFiles = ['blackIp', 'whiteIp', 'whitehost'];
+                if (hotReloadFiles.includes(file)) {
+                    this.showToast(`文件 ${file} 已保存并即时生效`, 'success');
+                } else {
+                    this.showToast(`文件 ${file} 已保存，请重载配置使其生效`, 'success');
+                }
             } catch (error) {
                 this.showToast('保存失败: ' + error.message, 'error');
             }

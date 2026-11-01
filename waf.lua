@@ -364,6 +364,8 @@ function Waf:calculateRequestSize()
 end
 
 function Waf:process()
+    -- 名单热更新：管理员改动 IP 黑白名单 / Host 白名单后，本 worker 下一次请求即生效（无需重载 nginx）
+    if ensure_lists_fresh then ensure_lists_fresh() end
     self.count:addReqCount(self.ip)
     local mode = WAF_CONFIG["mode"]
     if mode == "off" then

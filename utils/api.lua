@@ -4,6 +4,18 @@ local cache = require "cache"
 local logger = require "logger"
 local localFile = require "localFile"
 
+-- 保存后需要立即生效的名单文件（IP 黑名单 / IP 白名单 / Host 白名单）
+local HOT_RELOAD_FILES = { blackIp = true, whiteIp = true, whitehost = true }
+
+-- 名单热更新：把名单文件的磁盘变更广播给所有 worker（由 init.lua 提供的全局函数，基于 nova_waf 共享字典版本号）
+local function signalListsChanged()
+    if notify_lists_changed then
+        notify_lists_changed()
+    else
+        ngx.log(ngx.WARN, "notify_lists_changed is unavailable, list changes take effect only after reload")
+    end
+end
+
 -- 校验规则文件名（严格白名单：仅允许字母、数字、下划线并以 .lua 结尾，阻断 ../ 与 Windows 反斜杠 \ 穿越）
 local function isValidRuleFile(ruleFile)
     if type(ruleFile) ~= "string" then
@@ -318,6 +330,7 @@ function _M.addToBlackList(ip)
     if file then
         file:write(ip .. "\n")
         file:close()
+        signalListsChanged()
         return true
     end
     return false
@@ -334,6 +347,7 @@ function _M.removeFromBlackList(ip)
             end
         end
         file:close()
+        signalListsChanged()
         return true
     end
     return false
@@ -364,6 +378,7 @@ function _M.addToWhiteList(ip)
     if file then
         file:write(ip .. "\n")
         file:close()
+        signalListsChanged()
         return true
     end
     return false
@@ -380,6 +395,7 @@ function _M.removeFromWhiteList(ip)
             end
         end
         file:close()
+        signalListsChanged()
         return true
     end
     return false
@@ -559,6 +575,10 @@ function _M.saveFile(fileName, content)
     if file then
         file:write(content)
         file:close()
+        -- IP 黑白名单 / Host 白名单保存后广播热更新，所有 worker 下一次请求即生效；waf.conf 仍需重载
+        if HOT_RELOAD_FILES[fileName] then
+            signalListsChanged()
+        end
         return true
     end
     return false
