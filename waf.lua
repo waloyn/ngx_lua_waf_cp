@@ -174,7 +174,7 @@ end
 
 function Waf:inAttack(rule, body, level, desc, possibly)
     self:recordRequest(rule, body)
-    self.count:addAttackCount(rule)
+    self.count:addAttackCount(rule, self.ip, self.host, ngx.var.request_uri)
 
     -- 监控模式下仅记录日志与统计，不拦截请求
     if WAF_CONFIG["mode"] == "monitor" then
@@ -396,7 +396,7 @@ function Waf:process()
     elseif self:isCCAttack() then
         ngx.log(ngx.WARN, "CC Attack: ", self.ip)
         self:recordRequest("CC Attack", "")
-        self.count:addAttackCount("cc")
+        self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
         if not is_monitor then
             self:ret403("CC Attack")
             return

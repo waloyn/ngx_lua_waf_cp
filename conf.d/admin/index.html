@@ -209,14 +209,14 @@
                     <!-- 页面标题与筛选控制栏 -->
                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1">
                         <div>
-                            <div class="flex items-center gap-2.5">
-                                <h1 class="text-xl font-bold tracking-tight text-slate-900">系统仪表盘</h1>
+                            <div class="flex items-center gap-2.5 flex-wrap">
+                                <h1 class="text-xl font-bold tracking-tight text-slate-900">安全态势与分析仪表盘</h1>
                                 <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                     WAF 引擎防护中
                                 </span>
                             </div>
-                            <p class="text-xs text-slate-500 mt-1">实时防护数据流、攻击拦截及流量画像</p>
+                            <p class="text-xs text-slate-500 mt-1">基于攻击特征识别、时序态势监控与威胁画像的全景安全视图</p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             <!-- 快捷时间筛选组 -->
@@ -238,7 +238,7 @@
                                 class="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition shadow-sm"
                                 title="刷新数据"
                             >
-                                <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg class="w-3.5 h-3.5 text-slate-500" :class="{'animate-spin': isLoading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                                 </svg>
                                 刷新
@@ -246,118 +246,560 @@
                         </div>
                     </div>
 
-                    <!-- 4 个扁平化指标统计卡片 -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                        <!-- 总请求数 -->
-                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex items-center justify-between">
-                            <div class="space-y-1">
-                                <div class="text-xs font-medium text-slate-500">总请求数</div>
-                                <div class="text-2xl font-bold tracking-tight text-slate-900">
+                    <!-- 6 个核心安全指标统计卡片 -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3.5 sm:gap-4">
+                        <!-- 1. 总请求量 -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-slate-500">
+                                <span class="text-xs font-medium">总访问量</span>
+                                <div class="w-7 h-7 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
                                     {{ formatNumber(dashboardStats.totalRequests) }}
                                 </div>
-                                <div class="text-[11px] text-slate-400">{{ statsPeriodLabel }}接入流量</div>
-                            </div>
-                            <div class="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                                </svg>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">{{ statsPeriodLabel }}全站流量</div>
                             </div>
                         </div>
 
-                        <!-- 拦截请求 -->
-                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex items-center justify-between">
-                            <div class="space-y-1">
-                                <div class="text-xs font-medium text-slate-500">已拦截恶意请求</div>
-                                <div class="text-2xl font-bold tracking-tight text-rose-600">
+                        <!-- 2. 阻断恶意攻击 -->
+                        <div class="bg-white rounded-xl border border-rose-100 p-4 shadow-xs flex flex-col justify-between bg-gradient-to-br from-white to-rose-50/20">
+                            <div class="flex items-center justify-between text-rose-600">
+                                <span class="text-xs font-medium">恶意拦截总数</span>
+                                <div class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-rose-600">
                                     {{ formatNumber(dashboardStats.blockedRequests) }}
                                 </div>
-                                <div class="text-[11px] text-rose-500 font-medium">{{ statsPeriodLabel }}触发规则阻断</div>
-                            </div>
-                            <div class="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
-                                </svg>
+                                <div class="text-[11px] text-rose-500 font-medium truncate mt-0.5">阻断率 {{ dashboardStats.blockRate }}</div>
                             </div>
                         </div>
 
-                        <!-- 拦截率 -->
-                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex items-center justify-between">
-                            <div class="space-y-1">
-                                <div class="text-xs font-medium text-slate-500">实时威胁拦截率</div>
-                                <div class="text-2xl font-bold tracking-tight text-slate-900">
-                                    {{ dashboardStats.blockRate }}
+                        <!-- 3. 漏洞攻击数 -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-slate-500">
+                                <span class="text-xs font-medium">漏洞攻击数</span>
+                                <div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                                 </div>
-                                <div class="text-[11px] text-slate-400">{{ statsPeriodLabel }}拦截 / 总请求占比</div>
                             </div>
-                            <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                                </svg>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+                                    {{ formatNumber(dashboardStats.vulnRequests) }}
+                                </div>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">注入/代码执行/包含等</div>
                             </div>
                         </div>
 
-                        <!-- 防护状态 -->
-                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex items-center justify-between">
-                            <div class="space-y-1">
-                                <div class="text-xs font-medium text-slate-500">防护引擎状态</div>
-                                <div class="flex items-center gap-2 pt-1">
-                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                                        Active 运行中
-                                    </span>
+                        <!-- 4. CC 攻击数 -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-slate-500">
+                                <span class="text-xs font-medium">CC 攻击数</span>
+                                <div class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                                 </div>
-                                <div class="text-[11px] text-slate-400">OpenResty 9520 正常监听</div>
                             </div>
-                            <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-indigo-600">
+                                    {{ formatNumber(dashboardStats.ccRequests) }}
+                                </div>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">高频恶意刷量拦截</div>
+                            </div>
+                        </div>
+
+                        <!-- 5. 攻击源 IP -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-slate-500">
+                                <span class="text-xs font-medium">恶意攻击 IP</span>
+                                <div class="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+                                    {{ formatNumber(dashboardStats.attackIpsCount) }}
+                                </div>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">漏洞 {{ dashboardStats.vulnIpsCount }} | CC {{ dashboardStats.ccIpsCount }}</div>
+                            </div>
+                        </div>
+
+                        <!-- 6. 涉及攻击种类 / 受护域名 -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-slate-500">
+                                <span class="text-xs font-medium">攻击种类 / 域名</span>
+                                <div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                                </div>
+                            </div>
+                            <div class="mt-2">
+                                <div class="text-xl sm:text-2xl font-bold tracking-tight text-emerald-600">
+                                    {{ dashboardStats.attackTypesCount }} <span class="text-xs font-normal text-slate-500">类</span>
+                                </div>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">涉及 {{ dashboardStats.domainCount }} 个受护域名</div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 2x2 响应式图表网格 -->
+                    <!-- 第一排安全图表：攻击类型分布 (环形图) & 攻击目标分类 (雷达图) -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <!-- 系统类型分布 -->
+                        <!-- 攻击类型分布 -->
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
-                            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                                <h3 class="text-sm font-semibold text-slate-900">操作系统类型分布</h3>
-                                <span class="text-xs text-slate-400">客户端特征 ({{ statsPeriodLabel }})</span>
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">漏洞攻击类型分布</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">各类 Web 威胁与探测行为占比 ({{ statsPeriodLabel }})</p>
+                                </div>
+                                <span class="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                                    {{ dashboardStats.attackTypesList.length }} 种已检出类型
+                                </span>
                             </div>
-                            <div class="h-64 sm:h-72 relative pt-4 flex-1">
-                                <canvas ref="systemTypeChart"></canvas>
+                            <div class="h-72 relative pt-2 flex-1">
+                                <canvas ref="attackTypeChart"></canvas>
                             </div>
                         </div>
 
-                        <!-- 请求 IP TOP 10 -->
+                        <!-- 攻击目标雷达图 -->
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
-                            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                                <h3 class="text-sm font-semibold text-slate-900">来源 IP 访问排行 TOP 10</h3>
-                                <span class="text-xs text-slate-400">高频来源 ({{ statsPeriodLabel }})</span>
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">攻击目标分类雷达图</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">数据 / 应用 / 服务器 / 文件 / 其他 五维受攻击态势</p>
+                                </div>
+                                <span class="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                                    多维威胁模型
+                                </span>
                             </div>
-                            <div class="h-64 sm:h-72 relative pt-4 flex-1">
-                                <canvas ref="topIpChart"></canvas>
+                            <div class="h-72 relative pt-2 flex-1">
+                                <canvas ref="attackRadarChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 第二排安全图表：24小时时序趋势双曲线 & 攻击源地理分布柱状图 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <!-- 24小时攻击时序趋势 -->
+                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">24小时攻击时序趋势</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">漏洞攻击与 CC 攻击全天时序波动特征</p>
+                                </div>
+                                <div class="flex items-center gap-3 text-xs text-slate-500">
+                                    <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>漏洞攻击</span>
+                                    <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>CC攻击</span>
+                                </div>
+                            </div>
+                            <div class="h-72 relative pt-2 flex-1">
+                                <canvas ref="attackTrendChart"></canvas>
                             </div>
                         </div>
 
-                        <!-- HOST 分布 -->
+                        <!-- 攻击源地理分布 TOP 10 -->
                         <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
-                            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                                <h3 class="text-sm font-semibold text-slate-900">受保护 HOST 域名分布</h3>
-                                <span class="text-xs text-slate-400">站点流量 ({{ statsPeriodLabel }})</span>
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">攻击源 IP 地理分布 TOP 10</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">基于 GeoIP 数据库定位的攻击源国家/地区排行</p>
+                                </div>
+                                <span class="text-xs text-slate-400 font-mono">GeoLite2</span>
                             </div>
-                            <div class="h-64 sm:h-72 relative pt-4 flex-1">
-                                <canvas ref="hostChart"></canvas>
+                            <div class="h-72 relative pt-2 flex-1">
+                                <canvas ref="attackGeoChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 第三排：时间序列安全态势简报 & 攻击行为统计分类矩阵 -->
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                        <!-- 时间序列安全态势分析简报 (左侧 5 列) -->
+                        <div class="xl:col-span-5 bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">时间序列安全态势简报</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">关键威胁事件与首末攻击特征溯源</p>
+                                </div>
+                                <span class="text-[11px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-mono">
+                                    时间序列
+                                </span>
+                            </div>
+
+                            <div class="mt-4 space-y-4 text-xs flex-1 overflow-y-auto max-h-[380px] pr-1">
+                                <!-- 结果概述 -->
+                                <div class="p-3.5 rounded-lg bg-slate-50 border border-slate-100 space-y-2">
+                                    <div class="flex items-center gap-2 font-semibold text-slate-800">
+                                        <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                        <span>态势总览概述</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-2 text-slate-600 pt-1">
+                                        <div>受护域名: <span class="font-medium text-slate-800">{{ dashboardStats.securitySummary.domain_count || dashboardStats.domainCount || 1 }} 个</span></div>
+                                        <div>统计周期: <span class="font-medium text-slate-800">{{ dashboardStats.securitySummary.time_period || statsPeriodLabel }}</span></div>
+                                        <div>阻断总量: <span class="font-medium text-rose-600">{{ formatNumber(dashboardStats.securitySummary.total_attacks || dashboardStats.blockedRequests) }} 次</span></div>
+                                        <div>最近拦截: <span class="font-medium text-slate-800 font-mono text-[11px]">{{ dashboardStats.securitySummary.last_attack_time || '-' }}</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- 漏洞攻击时序 -->
+                                <div class="p-3.5 rounded-lg bg-amber-50/40 border border-amber-100/80 space-y-2">
+                                    <div class="flex items-center gap-2 font-semibold text-amber-900">
+                                        <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                        <span>漏洞攻击态势</span>
+                                    </div>
+                                    <div class="space-y-1.5 text-slate-600 leading-relaxed">
+                                        <p>• 累计检出 <strong class="text-slate-800 font-semibold">{{ dashboardStats.securitySummary.vuln_ip_count || dashboardStats.vulnIpsCount }}</strong> 个攻击源，发起 <strong class="text-rose-600 font-semibold">{{ formatNumber(dashboardStats.securitySummary.vuln_attack_count || dashboardStats.vulnRequests) }}</strong> 次漏洞利用。</p>
+                                        <p>• 首次拦截时间：<span class="font-mono text-slate-800">{{ dashboardStats.securitySummary.first_vuln_time || '-' }}</span></p>
+                                        <p>• 首次攻击源：<span class="font-mono text-slate-800">{{ dashboardStats.securitySummary.first_vuln_ip || '-' }}</span> (<span class="text-slate-700">{{ dashboardStats.securitySummary.first_vuln_location || '-' }}</span>)，类型：<span class="font-medium text-amber-700">{{ dashboardStats.securitySummary.first_vuln_type || '-' }}</span></p>
+                                        <p>• 最高频攻击源：<span class="font-mono text-slate-800">{{ dashboardStats.securitySummary.top_vuln_ip || '-' }}</span> (<span class="text-slate-700">{{ dashboardStats.securitySummary.top_vuln_location || '-' }}</span>)，拦截 {{ formatNumber(dashboardStats.securitySummary.top_vuln_count || 0) }} 次 (<span class="text-rose-600 font-medium">{{ dashboardStats.securitySummary.top_vuln_percent || '0%' }}</span>)</p>
+                                        <p>• 攻击高峰时段：<span class="font-medium text-slate-800">{{ dashboardStats.securitySummary.peak_vuln_hour || '-' }}</span>，峰值攻击量 <span class="font-semibold text-rose-600">{{ formatNumber(dashboardStats.securitySummary.peak_vuln_count || 0) }}</span> 次</p>
+                                    </div>
+                                </div>
+
+                                <!-- CC 攻击时序 -->
+                                <div class="p-3.5 rounded-lg bg-indigo-50/40 border border-indigo-100/80 space-y-2">
+                                    <div class="flex items-center gap-2 font-semibold text-indigo-900">
+                                        <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                        <span>CC 刷量攻击态势</span>
+                                    </div>
+                                    <div class="space-y-1.5 text-slate-600 leading-relaxed">
+                                        <p>• 累计记录 <strong class="text-slate-800 font-semibold">{{ dashboardStats.securitySummary.cc_ip_count || dashboardStats.ccIpsCount }}</strong> 个高频 IP 发起 <strong class="text-indigo-600 font-semibold">{{ formatNumber(dashboardStats.securitySummary.cc_attack_count || dashboardStats.ccRequests) }}</strong> 次频次阻断。</p>
+                                        <p>• CC 攻击峰值时段：<span class="font-medium text-slate-800">{{ dashboardStats.securitySummary.peak_cc_hour || '-' }}</span>，单小时阻断 {{ formatNumber(dashboardStats.securitySummary.peak_cc_count || 0) }} 次</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- 状态码分布 -->
-                        <div class="bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
-                            <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                                <h3 class="text-sm font-semibold text-slate-900">HTTP 状态码分布</h3>
-                                <span class="text-xs text-slate-400">响应质量 ({{ statsPeriodLabel }})</span>
+                        <!-- 攻击行为统计分类矩阵 (右侧 7 列) -->
+                        <div class="xl:col-span-7 bg-white rounded-xl border border-slate-200/90 p-5 shadow-xs flex flex-col">
+                            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-slate-900">攻击行为统计分类</h3>
+                                    <p class="text-xs text-slate-400 mt-0.5">点击具体攻击类型卡片可联动过滤下方高危明细</p>
+                                </div>
+                                <button 
+                                    v-if="selectedAttackFilter" 
+                                    @click="selectedAttackFilter = ''" 
+                                    class="text-xs text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-medium border border-indigo-100"
+                                >
+                                    清除联动过滤 ({{ selectedAttackFilter }})
+                                </button>
                             </div>
-                            <div class="h-64 sm:h-72 relative pt-4 flex-1">
-                                <canvas ref="statusCodeChart"></canvas>
+
+                            <div class="mt-4 flex-1">
+                                <div v-if="dashboardStats.attackTypesList.length === 0" class="h-48 flex items-center justify-center text-xs text-slate-400">
+                                    暂无检出的攻击类型数据
+                                </div>
+                                <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    <div 
+                                        v-for="item in dashboardStats.attackTypesList" 
+                                        :key="item.name"
+                                        @click="selectAttackFilter(item.name)"
+                                        :class="selectedAttackFilter === item.name 
+                                            ? 'ring-2 ring-indigo-500 bg-indigo-50/50 border-indigo-300' 
+                                            : 'bg-slate-50/70 hover:bg-slate-100/70 border-slate-200/80'"
+                                        class="cursor-pointer p-3 rounded-lg border transition-all duration-150 flex flex-col justify-between group"
+                                    >
+                                        <div class="flex items-start justify-between gap-1">
+                                            <span class="text-xs font-semibold text-slate-800 group-hover:text-indigo-600 transition leading-snug truncate" :title="item.name">
+                                                {{ item.name }}
+                                            </span>
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 shrink-0">
+                                                {{ item.target || '其他' }}
+                                            </span>
+                                        </div>
+                                        <div class="mt-2.5 flex items-baseline justify-between">
+                                            <span class="text-base font-bold text-rose-600">
+                                                {{ formatNumber(item.value) }} <span class="text-[10px] font-normal text-slate-500">条</span>
+                                            </span>
+                                            <span class="text-[11px] font-medium text-slate-400">
+                                                {{ item.percent || '' }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 第四排：恶意 IP 攻击排行榜单 -->
+                    <div class="bg-white rounded-xl border border-slate-200/90 shadow-xs flex flex-col">
+                        <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-semibold text-slate-900">恶意 IP 攻击排行榜</h3>
+                                <p class="text-xs text-slate-400 mt-0.5">高频发起探测与注入的威胁源 IP，支持一键加入黑名单</p>
+                            </div>
+                            <!-- Tab 切换 -->
+                            <div class="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 text-xs">
+                                <button 
+                                    @click="toggleIpTab('all')" 
+                                    :class="selectedIpTab === 'all' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                                    class="px-2.5 py-1 rounded-md transition"
+                                >
+                                    全部恶意 IP ({{ (dashboardStats.maliciousIps.all || []).length }})
+                                </button>
+                                <button 
+                                    @click="toggleIpTab('vuln')" 
+                                    :class="selectedIpTab === 'vuln' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                                    class="px-2.5 py-1 rounded-md transition"
+                                >
+                                    漏洞攻击 IP ({{ (dashboardStats.maliciousIps.vuln || []).length }})
+                                </button>
+                                <button 
+                                    @click="toggleIpTab('cc')" 
+                                    :class="selectedIpTab === 'cc' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                                    class="px-2.5 py-1 rounded-md transition"
+                                >
+                                    CC 攻击 IP ({{ (dashboardStats.maliciousIps.cc || []).length }})
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50 border-b border-slate-200/80 text-slate-500 font-medium">
+                                    <tr>
+                                        <th class="py-3 px-4 w-12 text-center">排名</th>
+                                        <th class="py-3 px-4">攻击者 IP</th>
+                                        <th class="py-3 px-4">国家 / 地区</th>
+                                        <th class="py-3 px-4">攻击分类</th>
+                                        <th class="py-3 px-4 text-right">攻击次数</th>
+                                        <th class="py-3 px-4 w-44">次数占比</th>
+                                        <th class="py-3 px-4 w-28 text-right">处置动作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-if="displayedMaliciousIps.length === 0">
+                                        <td colspan="7" class="py-8 text-center text-slate-400">
+                                            当前分类下暂无恶意 IP 数据
+                                        </td>
+                                    </tr>
+                                    <tr v-for="(item, idx) in displayedMaliciousIps" :key="item.ip + idx" class="hover:bg-slate-50/60 transition">
+                                        <td class="py-2.5 px-4 text-center">
+                                            <span 
+                                                :class="idx === 0 ? 'bg-rose-500 text-white' :
+                                                        idx === 1 ? 'bg-amber-500 text-white' :
+                                                        idx === 2 ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-600'"
+                                                class="inline-block w-5 h-5 rounded-full text-[10px] font-bold leading-5"
+                                            >
+                                                {{ item.rank || (idx + 1) }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono font-medium text-slate-800">
+                                            {{ item.ip }}
+                                        </td>
+                                        <td class="py-2.5 px-4 text-slate-600">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-700">
+                                                {{ item.location || '未知' }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 px-4">
+                                            <span 
+                                                :class="item.type === 'CC攻击' ? 'bg-indigo-50 text-indigo-700 border-indigo-200/60' :
+                                                        item.type === '混合攻击' ? 'bg-violet-50 text-violet-700 border-violet-200/60' :
+                                                        'bg-amber-50 text-amber-700 border-amber-200/60'"
+                                                class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                                            >
+                                                {{ item.type || '漏洞攻击' }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 px-4 text-right font-semibold text-slate-900">
+                                            {{ formatNumber(item.count) }}
+                                        </td>
+                                        <td class="py-2.5 px-4">
+                                            <div class="flex items-center gap-2">
+                                                <div class="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                                    <div class="bg-indigo-600 h-1.5 rounded-full" :style="{ width: item.percent || '0%' }"></div>
+                                                </div>
+                                                <span class="font-mono text-[11px] text-slate-500 w-14 text-right shrink-0">{{ item.percent || '0%' }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="py-2.5 px-4 text-right">
+                                            <span v-if="item.is_blocked" class="inline-flex items-center px-2 py-1 rounded text-[10px] font-medium bg-slate-100 text-slate-400">
+                                                已加黑
+                                            </span>
+                                            <button 
+                                                v-else 
+                                                @click="addIpToBlacklist(item)"
+                                                class="cursor-pointer inline-flex items-center px-2 py-1 rounded text-[11px] font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 transition border border-rose-200/60 shadow-2xs"
+                                                title="阻断此 IP 并加入黑名单"
+                                            >
+                                                一键加黑
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 展开/收起恶意 IP 切换条 -->
+                        <div v-if="totalMaliciousIpsCount > 10" class="p-2.5 border-t border-slate-100 text-center bg-slate-50/50">
+                            <button 
+                                @click="toggleIpsExpanded" 
+                                class="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1"
+                            >
+                                <span>{{ isIpsExpanded ? '收起榜单 (仅显示 TOP 10)' : ('展开查看全部 (' + totalMaliciousIpsCount + ' 个恶意 IP)') }}</span>
+                                <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-180': isIpsExpanded}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 第五排：高危攻击与漏洞拦截明细列表 -->
+                    <div id="highRiskIncidentsSection" class="bg-white rounded-xl border border-slate-200/90 shadow-xs flex flex-col scroll-mt-6">
+                        <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-sm font-semibold text-slate-900">高危攻击与漏洞拦截明细</h3>
+                                    <span v-if="selectedAttackFilter" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                        筛选: {{ selectedAttackFilter }}
+                                        <button @click="selectedAttackFilter = ''" class="hover:text-rose-600 font-bold ml-0.5">&times;</button>
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-400 mt-0.5">最新记录的高危请求、拦截规则及客户端原始特征</p>
+                            </div>
+                            <div class="text-xs text-slate-500">
+                                实时捕获 {{ totalRecentAttacksCount }} 条高危记录
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50 border-b border-slate-200/80 text-slate-500 font-medium">
+                                    <tr>
+                                        <th class="py-3 px-4 w-12 text-center">ID</th>
+                                        <th class="py-3 px-4 w-36">拦截时间</th>
+                                        <th class="py-3 px-4 w-36">受护 HOST</th>
+                                        <th class="py-3 px-4 w-36">攻击类型</th>
+                                        <th class="py-3 px-4 w-36">攻击源 IP</th>
+                                        <th class="py-3 px-4 max-w-[200px] sm:max-w-xs lg:max-w-sm">请求 URL / Payload</th>
+                                        <th class="py-3 px-4 w-28 text-center">处置</th>
+                                        <th class="py-3 px-4 w-24 text-right">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-if="displayedRecentAttacks.length === 0">
+                                        <td colspan="8" class="py-8 text-center text-slate-400">
+                                            暂无符合当前条件的高危攻击明细记录
+                                        </td>
+                                    </tr>
+                                    <tr v-for="(attack, idx) in displayedRecentAttacks" :key="attack.id || idx" class="hover:bg-slate-50/60 transition">
+                                        <td class="py-2.5 px-4 text-center text-slate-400 font-mono">
+                                            {{ attack.id || (idx + 1) }}
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                                            {{ attack.time || '-' }}
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono text-slate-700 truncate max-w-[150px]" :title="attack.host">
+                                            {{ attack.host || 'default' }}
+                                        </td>
+                                        <td class="py-2.5 px-4">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-50 text-rose-700 border border-rose-200/60 max-w-[140px] truncate" :title="attack.attack_type || attack.type || attack.raw_type || attack.rule || '未知威胁'">
+                                                {{ attack.attack_type || attack.type || attack.raw_type || attack.rule || '未知威胁' }}
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono text-slate-800 whitespace-nowrap">
+                                            <div>{{ attack.ip || '-' }}</div>
+                                            <div class="text-[10px] text-slate-400">{{ attack.location || '-' }}</div>
+                                        </td>
+                                        <td class="py-2.5 px-4 font-mono text-[11px] text-slate-700 max-w-[200px] sm:max-w-xs lg:max-w-sm truncate" :title="attack.request_uri || attack.url || attack.uri || '-'">
+                                            <div class="truncate">{{ attack.request_uri || attack.url || attack.uri || '-' }}</div>
+                                            <div v-if="attack.payload || attack.request_data" class="text-[10px] text-slate-400 truncate mt-0.5" :title="attack.payload || attack.request_data">
+                                                <span class="text-rose-500 font-medium">Data:</span> {{ attack.payload || attack.request_data }}
+                                            </div>
+                                        </td>
+                                        <td class="py-2.5 px-4 w-28 text-center whitespace-nowrap">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                                                403 阻断
+                                            </span>
+                                        </td>
+                                        <td class="py-2.5 px-4 text-right">
+                                            <button 
+                                                @click="viewAttackDetail(attack)"
+                                                class="cursor-pointer text-indigo-600 hover:text-indigo-800 font-medium text-xs hover:underline"
+                                            >
+                                                查看报文
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 展开/收起明细记录切换条 -->
+                        <div v-if="totalRecentAttacksCount > 10" class="p-2.5 border-t border-slate-100 text-center bg-slate-50/50">
+                            <button 
+                                @click="toggleAttacksExpanded" 
+                                class="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1"
+                            >
+                                <span>{{ isAttacksExpanded ? '收起记录 (显示前 10 条)' : ('展开更多记录 (' + Math.min(totalRecentAttacksCount, 50) + ' / ' + totalRecentAttacksCount + ' 条)') }}</span>
+                                <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-180': isAttacksExpanded}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 第六排：基础访问流量画像 (可折叠面板) -->
+                    <div class="bg-white rounded-xl border border-slate-200/90 shadow-xs flex flex-col">
+                        <div class="p-4 sm:p-5 flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-semibold text-slate-900">基础访问网络与流量画像</h3>
+                                <p class="text-xs text-slate-400 mt-0.5">客户端操作系统、受护 HOST 分布、HTTP 状态码及高频访问来源</p>
+                            </div>
+                            <button 
+                                @click="toggleTrafficProfile"
+                                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition"
+                            >
+                                <span>{{ showTrafficProfile ? '收起流量画像' : '展开流量画像' }}</span>
+                                <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-180': showTrafficProfile}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                        </div>
+
+                        <div v-show="showTrafficProfile" class="p-5 pt-0 border-t border-slate-100">
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
+                                <!-- 系统类型分布 -->
+                                <div class="p-4 rounded-xl border border-slate-100 bg-slate-50/40 flex flex-col">
+                                    <div class="flex items-center justify-between pb-3 border-b border-slate-200/60">
+                                        <h4 class="text-xs font-semibold text-slate-800">操作系统特征分布</h4>
+                                        <span class="text-[11px] text-slate-400">客户端 OS</span>
+                                    </div>
+                                    <div class="h-60 relative pt-3 flex-1">
+                                        <canvas ref="systemTypeChart"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- 请求 IP TOP 10 -->
+                                <div class="p-4 rounded-xl border border-slate-100 bg-slate-50/40 flex flex-col">
+                                    <div class="flex items-center justify-between pb-3 border-b border-slate-200/60">
+                                        <h4 class="text-xs font-semibold text-slate-800">访问 IP 排行 TOP 10</h4>
+                                        <span class="text-[11px] text-slate-400">频次来源</span>
+                                    </div>
+                                    <div class="h-60 relative pt-3 flex-1">
+                                        <canvas ref="topIpChart"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- HOST 分布 -->
+                                <div class="p-4 rounded-xl border border-slate-100 bg-slate-50/40 flex flex-col">
+                                    <div class="flex items-center justify-between pb-3 border-b border-slate-200/60">
+                                        <h4 class="text-xs font-semibold text-slate-800">受保护 HOST 域名分布</h4>
+                                        <span class="text-[11px] text-slate-400">站点流量</span>
+                                    </div>
+                                    <div class="h-60 relative pt-3 flex-1">
+                                        <canvas ref="hostChart"></canvas>
+                                    </div>
+                                </div>
+
+                                <!-- 状态码分布 -->
+                                <div class="p-4 rounded-xl border border-slate-100 bg-slate-50/40 flex flex-col">
+                                    <div class="flex items-center justify-between pb-3 border-b border-slate-200/60">
+                                        <h4 class="text-xs font-semibold text-slate-800">HTTP 状态码分布</h4>
+                                        <span class="text-[11px] text-slate-400">响应质量</span>
+                                    </div>
+                                    <div class="h-60 relative pt-3 flex-1">
+                                        <canvas ref="statusCodeChart"></canvas>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

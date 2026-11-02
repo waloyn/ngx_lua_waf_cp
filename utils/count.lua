@@ -121,23 +121,105 @@ function _M:addReqDenyCount()
     self:Incr(self.REQ_DENY_COUNT)
 end
 
--- 记录攻击类型分布
-function _M:addAttackCount(ruleName)
+-- 智能分类攻击类型、统计键名、攻击目标与是否为CC攻击（对齐安全分析报告）
+local function classifyAttack(ruleName, uri)
+    local raw = (ruleName or "") .. " " .. (uri or "")
+    local lower = string.lower(raw)
+
+    if lower:find("cc", 1, true) then
+        return "CC攻击", "cc", "其他", true
+    elseif lower:find("blind", 1, true) or lower:find("sleep", 1, true) or lower:find("benchmark", 1, true) or lower:find("waitfor", 1, true) then
+        return "SQL盲注攻击探测", "sql_blind", "数据", false
+    elseif lower:find("sql", 1, true) then
+        return "SQL注入攻击", "sqli", "数据", false
+    elseif lower:find("xss", 1, true) or lower:find("script", 1, true) or lower:find("alert", 1, true) then
+        return "跨站脚本攻击(XSS)", "xss", "应用", false
+    elseif lower:find("command", 1, true) or lower:find("cmd", 1, true) or lower:find("rce", 1, true) or lower:find("execution", 1, true) then
+        return "远程代码执行漏洞攻击", "cmd", "服务器", false
+    elseif lower:find("path traversal", 1, true) or lower:find("traversal", 1, true) or lower:find("include", 1, true) or lower:find("lfi", 1, true) or lower:find("rfi", 1, true) or lower:find("/%.%./", 1, true) then
+        return "文件包含漏洞攻击", "file_inclusion", "文件", false
+    elseif lower:find("sensitive", 1, true) and (lower:find("dir", 1, true) or lower:find("directory", 1, true) or lower:find("path", 1, true)) then
+        return "敏感目录访问", "sensitive_dir", "文件", false
+    elseif lower:find("sensitive", 1, true) or lower:find("info%.php", 1, true) or lower:find("install%.php", 1, true) or lower:find("swagger", 1, true) then
+        return "敏感文件探测", "sensitive_file", "文件", false
+    elseif lower:find("backup", 1, true) or lower:find("leak", 1, true) or lower:find("%.zip", 1, true) or lower:find("%.tar", 1, true) or lower:find("%.rar", 1, true) or lower:find("%.bak", 1, true) or lower:find("upload", 1, true) or lower:find("%.env", 1, true) then
+        return "可疑文件访问", "suspicious_file", "文件", false
+    elseif lower:find("bot", 1, true) or lower:find("crawler", 1, true) or lower:find("scan", 1, true) or lower:find("spider", 1, true) or lower:find("unknown", 1, true) then
+        return "Unknown扫描", "scanner", "其他", false
+    elseif lower:find("encoding", 1, true) or lower:find("character", 1, true) or lower:find("special", 1, true) then
+        return "特殊字符URL访问", "special_url", "应用", false
+    elseif lower:find("xxe", 1, true) or lower:find("entity", 1, true) then
+        return "XML外部实体注入", "xxe", "数据", false
+    elseif lower:find("ssrf", 1, true) then
+        return "SSRF漏洞攻击", "ssrf", "应用", false
+    elseif lower:find("ssti", 1, true) then
+        return "SSTI模板注入", "ssti", "应用", false
+    elseif lower:find("deserialize", 1, true) then
+        return "反序列化漏洞攻击", "deserialize", "服务器", false
+    elseif lower:find("spring", 1, true) then
+        return "Spring框架漏洞攻击", "spring", "应用", false
+    elseif lower:find("dns", 1, true) or lower:find("ceye", 1, true) then
+        return "DNS重绑定攻击", "dns", "服务器", false
+    elseif lower:find("nosql", 1, true) then
+        return "NoSQL注入", "nosql", "数据", false
+    else
+        return "其他攻击", "other", "其他", false
+    end
+end
+_M.classifyAttack = classifyAttack
+
+-- 记录攻击类型分布及多维指标
+function _M:addAttackCount(ruleName, ip, host, uri)
     if not ruleName then
         self:Incr("attack_other")
         return
     end
-    local lower = string.lower(ruleName)
-    if lower:find("sql", 1, true) then
-        self:Incr("attack_sqli")
-    elseif lower:find("xss", 1, true) then
-        self:Incr("attack_xss")
-    elseif lower:find("cc", 1, true) then
-        self:Incr("attack_cc")
-    elseif lower:find("command", 1, true) or lower:find("cmd", 1, true) then
-        self:Incr("attack_cmd")
+
+    local cat_name, cat_key, target, is_cc = classifyAttack(ruleName, uri)
+    local current_time = os.date("*t", ngx.time())
+    local hour = (current_time and current_time.hour) or 0
+
+    -- 1. 兼容原有统计键 (attack_sqli, attack_xss, etc.)
+    self:Incr("attack_" .. cat_key)
+
+    -- 2. 细化中文分类统计（用于漏洞类型饼图与行为统计矩阵）
+    self:Incr("atkname_" .. cat_name)
+
+    -- 3. 攻击目标分类统计（数据、应用、服务器、文件、其他，用于雷达图）
+    self:Incr("target_" .. target)
+
+    -- 4. 区分漏洞攻击与 CC 攻击
+    if is_cc then
+        self:Incr("attack_cc_total")
+        self:Incr("cc_hour_" .. hour, DYNAMIC_KEY_TTL)
+        if ip and #ip <= 64 then
+            self:Incr("cc_ip_" .. ip, DYNAMIC_KEY_TTL)
+        end
     else
-        self:Incr("attack_other")
+        self:Incr("attack_vuln_total")
+        self:Incr("vuln_hour_" .. hour, DYNAMIC_KEY_TTL)
+        if ip and #ip <= 64 then
+            self:Incr("vuln_ip_" .. ip, DYNAMIC_KEY_TTL)
+        end
+    end
+
+    -- 5. 恶意 IP 统计与地理归属统计
+    if ip and #ip <= 64 then
+        self:Incr("attacker_ip_" .. ip, DYNAMIC_KEY_TTL)
+        local ok, ipUtil = pcall(require, "ip")
+        if ok and ipUtil and ipUtil.getIPLocation then
+            local loc = ipUtil.getIPLocation(ip)
+            if loc and loc ~= "" then
+                local country = loc:match("^([^-]+)") or loc
+                if country == "内网IP" then country = "局域网" end
+                self:Incr("attack_geo_" .. country, DYNAMIC_KEY_TTL)
+            end
+        end
+    end
+
+    -- 6. 受攻击 HOST 统计
+    if host and #host > 0 and #host <= 128 then
+        self:Incr("attack_host_" .. host, DYNAMIC_KEY_TTL)
     end
 end
 

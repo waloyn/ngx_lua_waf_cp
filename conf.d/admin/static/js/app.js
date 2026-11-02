@@ -1,5 +1,6 @@
 const { createApp, markRaw } = Vue;
 
+
 createApp({
     data() {
         return {
@@ -21,17 +22,44 @@ createApp({
             // Dashboard data
             statsPeriod: 'process',
             periodOptions: [
-                { key: 'process', label: '启动至今' },
                 { key: 'day', label: '日 (今日)' },
                 { key: 'week', label: '周 (7天)' },
                 { key: 'month', label: '月 (30天)' },
-                { key: 'hour', label: '当前小时' }
+                { key: 'hour', label: '当前小时' },
+                { key: 'process', label: '启动至今' }
             ],
             dashboardStats: {
                 totalRequests: 0,
                 blockedRequests: 0,
-                blockRate: '0%'
+                vulnRequests: 0,
+                ccRequests: 0,
+                attackIpsCount: 0,
+                vulnIpsCount: 0,
+                ccIpsCount: 0,
+                attackTypesCount: 0,
+                domainCount: 1,
+                blockRate: '0%',
+                reportTime: '',
+                attackTypesList: [],
+                attackTargets: { '数据': 0, '应用': 0, '服务器': 0, '文件': 0, '其他': 0 },
+                attackTargetsRadar: { labels: ['数据', '其他', '应用', '服务器', '文件'], values: [0, 0, 0, 0, 0], max: 100 },
+                attackTrend: { hours: [], vuln: [], cc: [], total: [] },
+                attackGeo: [],
+                maliciousIps: { all: [], vuln: [], cc: [] },
+                securitySummary: {},
+                recentAttacks: []
             },
+            trafficProfileData: {
+                systemTypes: {},
+                hosts: {},
+                statusCodes: {},
+                topIps: {}
+            },
+            selectedIpTab: 'all',
+            isIpsExpanded: false,
+            selectedAttackFilter: '',
+            isAttacksExpanded: false,
+            showTrafficProfile: true,
             chartInstances: {},
 
             // Rules data
@@ -47,7 +75,7 @@ createApp({
             // Logs data
             logs: [],
             logQuery: {
-                host: '127.0.0.1',
+                host: '',
                 date: new Date().toISOString().split('T')[0]
             },
 
@@ -65,7 +93,9 @@ createApp({
                 '#10b981', // Emerald
                 '#475569', // Slate
                 '#ec4899', // Pink
-                '#eab308'  // Yellow
+                '#eab308', // Yellow
+                '#06b6d4', // Cyan
+                '#84cc16'  // Lime
             ]
         };
     },
@@ -79,6 +109,40 @@ createApp({
                 case 'process':
                 default: return '启动至今';
             }
+        },
+        displayedMaliciousIps() {
+            const list = this.dashboardStats.maliciousIps[this.selectedIpTab] || [];
+            if (!this.isIpsExpanded) {
+                return list.slice(0, 10);
+            }
+            return list;
+        },
+        totalMaliciousIpsCount() {
+            const list = this.dashboardStats.maliciousIps[this.selectedIpTab] || [];
+            return list.length;
+        },
+        displayedRecentAttacks() {
+            let list = this.dashboardStats.recentAttacks || [];
+            if (this.selectedAttackFilter) {
+                list = list.filter(item => {
+                    const t = item.attack_type || item.type || item.raw_type || item.rule || item.category || '';
+                    return t.includes(this.selectedAttackFilter) || this.selectedAttackFilter.includes(t);
+                });
+            }
+            if (!this.isAttacksExpanded) {
+                return list.slice(0, 10);
+            }
+            return list.slice(0, 50);
+        },
+        totalRecentAttacksCount() {
+            let list = this.dashboardStats.recentAttacks || [];
+            if (this.selectedAttackFilter) {
+                list = list.filter(item => {
+                    const t = item.attack_type || item.type || item.raw_type || item.rule || item.category || '';
+                    return t.includes(this.selectedAttackFilter) || this.selectedAttackFilter.includes(t);
+                });
+            }
+            return list.length;
         }
     },
     methods: {
@@ -112,7 +176,6 @@ createApp({
                     'Content-Type': 'application/json',
                     ...options.headers
                 };
-                // 写操作自动携带 CSRF Token
                 const method = (options.method || 'GET').toUpperCase();
                 if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
                     const csrfToken = sessionStorage.getItem('csrf_token');
@@ -148,21 +211,20 @@ createApp({
         },
         formatNumber(num) {
             if (num == null) return '0';
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toString();
+            const n = Number(num);
+            if (isNaN(n)) return num.toString();
+            return n.toLocaleString('en-US');
         },
         formatDate(dateStr) {
             if (!dateStr) return '-';
             const date = new Date(dateStr);
-            return date.toLocaleString('zh-CN');
+            return isNaN(date.getTime()) ? dateStr : date.toLocaleString('zh-CN');
         },
         switchPage(page) {
             this.currentPage = page;
             this.closeSidebar();
             this.loadPageData(page);
             
-            // Fix Chart.js interaction bug when un-hiding via v-show
             if (page === 'dashboard') {
                 this.$nextTick(() => {
                     this.resizeCharts();
@@ -188,6 +250,9 @@ createApp({
                 case 'blackwhitelist':
                     await this.loadBlackWhiteLists();
                     break;
+                case 'logs':
+                    await this.loadLogs();
+                    break;
                 case 'settings':
                     await this.loadConfig();
                     break;
@@ -196,40 +261,45 @@ createApp({
 
         // --- Dashboard Methods ---
         changeStatsPeriod(period) {
-            console.log('[WAF Dashboard] Switching stats period to:', period);
             this.statsPeriod = period;
             this.loadDashboardData(false);
         },
         async loadDashboardData(silent = false) {
             try {
-                console.log('[WAF Dashboard] Fetching stats for period:', this.statsPeriod);
                 const stats = await this.apiRequest(`/api/stats?period=${encodeURIComponent(this.statsPeriod)}`, {}, silent);
                 if (!stats) return;
 
-                const totalReq = stats.total_requests || stats.totalRequests || 0;
-                const blockedReq = stats.blocked_requests || stats.blockedRequests || 0;
-                
+                const totalReq = Number(stats.total_requests || stats.totalRequests || 0);
+                const blockedReq = Number(stats.blocked_requests || stats.blockedRequests || 0);
+                const vulnReq = Number(stats.vuln_requests || stats.vulnRequests || 0);
+                const ccReq = Number(stats.cc_requests || stats.ccRequests || 0);
+                const typesList = stats.attack_types_list || stats.attackTypesList || [];
+
                 this.dashboardStats.totalRequests = totalReq;
                 this.dashboardStats.blockedRequests = blockedReq;
-                this.dashboardStats.blockRate = totalReq > 0 
-                    ? ((blockedReq / totalReq) * 100).toFixed(2) + '%'
-                    : '0%';
+                this.dashboardStats.vulnRequests = vulnReq;
+                this.dashboardStats.ccRequests = ccReq;
+                this.dashboardStats.attackIpsCount = Number(stats.attack_ips_count || stats.attacker_ips_count || stats.attackIpsCount || 0);
+                this.dashboardStats.vulnIpsCount = Number(stats.vuln_ips_count || stats.vulnIpsCount || 0);
+                this.dashboardStats.ccIpsCount = Number(stats.cc_ips_count || stats.ccIpsCount || 0);
+                this.dashboardStats.attackTypesCount = Number(stats.attack_types_count || stats.attackTypesCount || (typesList.length));
+                this.dashboardStats.domainCount = Number(stats.domain_count || stats.domainCount || 1);
+                this.dashboardStats.blockRate = stats.block_rate || stats.blockRate || (totalReq > 0 ? ((blockedReq / totalReq) * 100).toFixed(2) + '%' : '0%');
+                this.dashboardStats.reportTime = stats.report_time || stats.reportTime || new Date().toLocaleString();
+                this.dashboardStats.attackTypesList = typesList;
+                this.dashboardStats.attackTargets = stats.attack_targets || stats.attackTargets || {};
+                this.dashboardStats.attackTargetsRadar = stats.attack_targets_radar || stats.attackTargetsRadar || { labels: ['数据', '其他', '应用', '服务器', '文件'], values: [0, 0, 0, 0, 0], max: 100 };
+                this.dashboardStats.attackTrend = stats.attack_trend || stats.attackTrend || { hours: [], vuln: [], cc: [], total: [] };
+                this.dashboardStats.attackGeo = stats.attack_geo || stats.attackGeo || [];
+                this.dashboardStats.maliciousIps = stats.malicious_ips || stats.maliciousIps || { all: [], vuln: [], cc: [] };
+                this.dashboardStats.securitySummary = stats.security_summary || stats.securitySummary || {};
+                this.dashboardStats.recentAttacks = stats.recent_attacks || stats.recentAttacks || [];
 
-                const attackTypes = stats.attackTypes || stats.attack_types || stats.attackType || {};
-                const systemTypes = stats.systemTypes || stats.os_distribution || stats.osDistribution || {};
-                const hosts = stats.hosts || stats.host_distribution || stats.hostDistribution || {};
-                const statusCodes = stats.statusCodes || stats.status_codes || stats.status_distribution || {};
-                let topIps = stats.topIps || stats.top_ips || stats.topIp || {};
-                
-                // 操作系统统计：合并 unknown 与 Unknown
-                if (systemTypes['unknown'] !== undefined || systemTypes['Unknown'] !== undefined) {
-                    const mergedUnknown = (Number(systemTypes['unknown']) || 0) + (Number(systemTypes['Unknown']) || 0);
-                    delete systemTypes['unknown'];
-                    if (mergedUnknown > 0) {
-                        systemTypes['Unknown'] = mergedUnknown;
-                    }
-                }
-
+                // 流量画像数据
+                this.trafficProfileData.systemTypes = stats.os_distribution || stats.systemTypes || {};
+                this.trafficProfileData.hosts = stats.host_distribution || stats.hosts || {};
+                this.trafficProfileData.statusCodes = stats.status_distribution || stats.statusCodes || {};
+                let topIps = stats.top_ips || stats.topIps || {};
                 if (Array.isArray(topIps)) {
                     const topIpsObj = {};
                     topIps.forEach(item => {
@@ -237,28 +307,20 @@ createApp({
                     });
                     topIps = topIpsObj;
                 }
+                this.trafficProfileData.topIps = topIps;
+
+                // 操作系统统计：合并 unknown
+                if (this.trafficProfileData.systemTypes['unknown'] !== undefined || this.trafficProfileData.systemTypes['Unknown'] !== undefined) {
+                    const mergedUnknown = (Number(this.trafficProfileData.systemTypes['unknown']) || 0) + (Number(this.trafficProfileData.systemTypes['Unknown']) || 0);
+                    delete this.trafficProfileData.systemTypes['unknown'];
+                    if (mergedUnknown > 0) {
+                        this.trafficProfileData.systemTypes['Unknown'] = mergedUnknown;
+                    }
+                }
 
                 this.$nextTick(() => {
-                    if (this.currentPage !== 'dashboard') return;
-
-                    const hasData = Object.keys(attackTypes).length || Object.keys(systemTypes).length || Object.keys(hosts).length || Object.keys(statusCodes).length || Object.keys(topIps).length;
-                    
-                    if (!hasData) {
-                        this.drawPieChart('systemTypeChart', {'Windows': 120, 'Linux': 85, 'Mac OS': 43, 'Android': 67, 'iOS': 38}, '系统类型');
-                        this.drawPieChart('hostChart', {'example.com': 150, 'api.example.com': 98, 'www.example.com': 76, 'admin.example.com': 45}, 'HOST');
-                        this.drawBarChart('statusCodeChart', {'200': 1250, '403': 156, '404': 89, '500': 23, '502': 12}, '状态码');
-                        this.drawBarChart('topIpChart', {'192.168.1.100': 234, '10.0.0.50': 189, '172.16.0.25': 156, '192.168.1.101': 134, '10.0.0.51': 112, '192.168.1.102': 98, '172.16.0.26': 87, '10.0.0.52': 76, '192.168.1.103': 65, '10.0.0.53': 54}, '请求次数');
-                    } else {
-                        this.drawPieChart('systemTypeChart', systemTypes, '系统类型');
-                        this.drawPieChart('hostChart', hosts, 'HOST');
-                        this.drawBarChart('statusCodeChart', statusCodes, '状态码');
-                        
-                        const topIpsData = {};
-                        Object.entries(topIps)
-                            .sort((a, b) => b[1] - a[1])
-                            .slice(0, 10)
-                            .forEach(([k, v]) => { topIpsData[k] = v; });
-                        this.drawBarChart('topIpChart', topIpsData, '请求次数');
+                    if (this.currentPage === 'dashboard') {
+                        this.renderAllCharts();
                     }
                 });
 
@@ -266,6 +328,381 @@ createApp({
                 console.error('Failed to load dashboard data:', error);
             }
         },
+
+        renderAllCharts() {
+            this.drawAttackTypeChart();
+            this.drawRadarChart();
+            this.drawLineTrendChart();
+            this.drawGeoBarChart();
+            if (this.showTrafficProfile) {
+                this.renderTrafficCharts();
+            }
+        },
+
+        // 1. 攻击类型环形图 (Doughnut)
+        drawAttackTypeChart() {
+            const canvas = this.$refs.attackTypeChart;
+            if (!canvas) return;
+
+            const list = this.dashboardStats.attackTypesList || [];
+            if (list.length === 0) {
+                if (this.chartInstances['attackTypeChart']) {
+                    this.chartInstances['attackTypeChart'].destroy();
+                    delete this.chartInstances['attackTypeChart'];
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无攻击类型记录', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                return;
+            }
+
+            const labels = list.map(item => item.name);
+            const values = list.map(item => item.value);
+            const percentages = list.map(item => item.percent || '');
+            const bgColors = labels.map((_, idx) => this.chartColors[idx % this.chartColors.length]);
+
+            if (this.chartInstances['attackTypeChart']) {
+                const chart = this.chartInstances['attackTypeChart'];
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = values;
+                chart.data.datasets[0].backgroundColor = bgColors;
+                chart.update();
+            } else {
+                this.chartInstances['attackTypeChart'] = markRaw(new Chart(canvas, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: values,
+                            backgroundColor: bgColors,
+                            borderWidth: 2,
+                            borderColor: '#ffffff',
+                            hoverOffset: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '62%',
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 10,
+                                    boxHeight: 10,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: { size: 11, family: 'inherit' },
+                                    color: '#475569',
+                                    padding: 10
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#0f172a',
+                                titleFont: { size: 12, weight: '600' },
+                                bodyFont: { size: 12 },
+                                padding: { top: 8, bottom: 8, left: 12, right: 12 },
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(ctx) {
+                                        const p = percentages[ctx.dataIndex] ? ` (${percentages[ctx.dataIndex]})` : '';
+                                        return ` ${ctx.label}: ${ctx.raw} 次${p}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+        },
+
+        // 2. 攻击目标分类雷达图 (Radar)
+        drawRadarChart() {
+            const canvas = this.$refs.attackRadarChart;
+            if (!canvas) return;
+
+            const radar = this.dashboardStats.attackTargetsRadar || { labels: ['数据', '其他', '应用', '服务器', '文件'], values: [0, 0, 0, 0, 0], max: 100 };
+            const labels = radar.labels || ['数据', '其他', '应用', '服务器', '文件'];
+            const values = radar.values || [0, 0, 0, 0, 0];
+            const maxVal = radar.max && radar.max > 0 ? radar.max : 100;
+
+            if (this.chartInstances['attackRadarChart']) {
+                const chart = this.chartInstances['attackRadarChart'];
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = values;
+                chart.options.scales.r.suggestedMax = maxVal;
+                chart.update();
+            } else {
+                this.chartInstances['attackRadarChart'] = markRaw(new Chart(canvas, {
+                    type: 'radar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '攻击目标威胁指数',
+                            data: values,
+                            backgroundColor: 'rgba(99, 102, 241, 0.22)',
+                            borderColor: '#6366f1',
+                            borderWidth: 2,
+                            pointBackgroundColor: '#4f46e5',
+                            pointBorderColor: '#ffffff',
+                            pointHoverBackgroundColor: '#ffffff',
+                            pointHoverBorderColor: '#4f46e5',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#0f172a',
+                                titleFont: { size: 12, weight: '600' },
+                                bodyFont: { size: 12 },
+                                padding: { top: 8, bottom: 8, left: 12, right: 12 },
+                                cornerRadius: 8
+                            }
+                        },
+                        scales: {
+                            r: {
+                                angleLines: { color: '#e2e8f0' },
+                                grid: { color: '#f1f5f9' },
+                                pointLabels: {
+                                    font: { size: 12, weight: '600', family: 'inherit' },
+                                    color: '#334155'
+                                },
+                                ticks: {
+                                    display: false,
+                                    precision: 0
+                                },
+                                suggestedMin: 0,
+                                suggestedMax: maxVal
+                            }
+                        }
+                    }
+                }));
+            }
+        },
+
+        // 3. 24小时攻击时序趋势双折线图 (Line)
+        drawLineTrendChart() {
+            const canvas = this.$refs.attackTrendChart;
+            if (!canvas) return;
+
+            const trend = this.dashboardStats.attackTrend || { hours: [], vuln: [], cc: [] };
+            const hours = trend.hours && trend.hours.length ? trend.hours : Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+            const vulnData = trend.vuln || [];
+            const ccData = trend.cc || [];
+
+            if (this.chartInstances['attackTrendChart']) {
+                const chart = this.chartInstances['attackTrendChart'];
+                chart.data.labels = hours;
+                chart.data.datasets[0].data = vulnData;
+                chart.data.datasets[1].data = ccData;
+                chart.update();
+            } else {
+                this.chartInstances['attackTrendChart'] = markRaw(new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: hours,
+                        datasets: [
+                            {
+                                label: '漏洞攻击 (次)',
+                                data: vulnData,
+                                borderColor: '#f43f5e',
+                                backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.35,
+                                pointRadius: 2.5,
+                                pointHoverRadius: 5
+                            },
+                            {
+                                label: 'CC 刷量攻击 (次)',
+                                data: ccData,
+                                borderColor: '#f59e0b',
+                                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.35,
+                                pointRadius: 2.5,
+                                pointHoverRadius: 5
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                align: 'end',
+                                labels: {
+                                    boxWidth: 10,
+                                    boxHeight: 10,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: { size: 11, family: 'inherit' },
+                                    color: '#475569',
+                                    padding: 12
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#0f172a',
+                                titleFont: { size: 12, weight: '600' },
+                                bodyFont: { size: 12 },
+                                padding: { top: 8, bottom: 8, left: 12, right: 12 },
+                                cornerRadius: 8
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { display: false },
+                                ticks: { 
+                                    color: '#64748b', 
+                                    font: { size: 10, family: 'inherit' },
+                                    maxRotation: 0,
+                                    autoSkip: true,
+                                    maxTicksLimit: 12
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: '#f1f5f9' },
+                                ticks: { 
+                                    color: '#64748b', 
+                                    font: { size: 11, family: 'inherit' }, 
+                                    precision: 0 
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+        },
+
+        // 4. 攻击 IP 地理分布横向柱状图 (Bar)
+        drawGeoBarChart() {
+            const canvas = this.$refs.attackGeoChart;
+            if (!canvas) return;
+
+            const geoList = (this.dashboardStats.attackGeo || []).slice(0, 10);
+            if (geoList.length === 0) {
+                if (this.chartInstances['attackGeoChart']) {
+                    this.chartInstances['attackGeoChart'].destroy();
+                    delete this.chartInstances['attackGeoChart'];
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无归属地统计', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                return;
+            }
+
+            const labels = geoList.map(item => item.name);
+            const values = geoList.map(item => item.value);
+            const percentages = geoList.map(item => item.percent || '');
+            const bgColors = labels.map((_, idx) => this.chartColors[idx % this.chartColors.length]);
+
+            if (this.chartInstances['attackGeoChart']) {
+                const chart = this.chartInstances['attackGeoChart'];
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = values;
+                chart.data.datasets[0].backgroundColor = bgColors;
+                chart.update();
+            } else {
+                this.chartInstances['attackGeoChart'] = markRaw(new Chart(canvas, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '拦截次数',
+                            data: values,
+                            backgroundColor: bgColors,
+                            borderRadius: 4,
+                            borderSkipped: false
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#0f172a',
+                                titleFont: { size: 12, weight: '600' },
+                                bodyFont: { size: 12 },
+                                padding: { top: 8, bottom: 8, left: 12, right: 12 },
+                                cornerRadius: 8,
+                                callbacks: {
+                                    label: function(ctx) {
+                                        const p = percentages[ctx.dataIndex] ? ` (${percentages[ctx.dataIndex]})` : '';
+                                        return ` 拦截: ${ctx.raw} 次${p}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: '#f1f5f9' },
+                                ticks: { 
+                                    color: '#64748b', 
+                                    font: { size: 10, family: 'inherit' }, 
+                                    precision: 0 
+                                }
+                            },
+                            y: {
+                                grid: { display: false },
+                                ticks: { 
+                                    color: '#334155', 
+                                    font: { size: 11, weight: '500', family: 'inherit' } 
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+        },
+
+        // 5. 基础访问流量画像 (原有 4 个图表)
+        renderTrafficCharts() {
+            const systemTypes = this.trafficProfileData.systemTypes || {};
+            const hosts = this.trafficProfileData.hosts || {};
+            const statusCodes = this.trafficProfileData.statusCodes || {};
+            let topIps = this.trafficProfileData.topIps || {};
+
+            const hasData = Object.keys(systemTypes).length || Object.keys(hosts).length || Object.keys(statusCodes).length || Object.keys(topIps).length;
+
+            if (!hasData) {
+                this.drawPieChart('systemTypeChart', {'Windows': 120, 'Linux': 85, 'Mac OS': 43, 'Android': 67, 'iOS': 38}, '系统类型');
+                this.drawPieChart('hostChart', {'default': 180, 'api.local': 98, 'waf.admin': 45}, 'HOST');
+                this.drawBarChart('statusCodeChart', {'200': 1250, '403': 156, '404': 89, '500': 23, '502': 12}, '状态码');
+                this.drawBarChart('topIpChart', {'127.0.0.1': 234, '192.168.1.100': 189, '10.0.0.50': 156, '172.16.0.25': 134}, '请求次数');
+            } else {
+                this.drawPieChart('systemTypeChart', systemTypes, '系统类型');
+                this.drawPieChart('hostChart', hosts, 'HOST');
+                this.drawBarChart('statusCodeChart', statusCodes, '状态码');
+                
+                const topIpsData = {};
+                Object.entries(topIps)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10)
+                    .forEach(([k, v]) => { topIpsData[k] = v; });
+                this.drawBarChart('topIpChart', topIpsData, '请求次数');
+            }
+        },
+
         drawPieChart(refName, data, label) {
             const canvas = this.$refs[refName];
             if (!canvas) return;
@@ -321,9 +758,9 @@ createApp({
                                     boxHeight: 10,
                                     usePointStyle: true,
                                     pointStyle: 'circle',
-                                    font: { size: 12, family: 'inherit' },
+                                    font: { size: 11, family: 'inherit' },
                                     color: '#475569',
-                                    padding: 12
+                                    padding: 10
                                 }
                             },
                             tooltip: {
@@ -331,17 +768,14 @@ createApp({
                                 titleFont: { size: 12, weight: '600' },
                                 bodyFont: { size: 12 },
                                 padding: { top: 8, bottom: 8, left: 12, right: 12 },
-                                cornerRadius: 8,
-                                displayColors: true,
-                                boxWidth: 8,
-                                boxHeight: 8,
-                                usePointStyle: true
+                                cornerRadius: 8
                             }
                         }
                     }
                 }));
             }
         },
+
         drawBarChart(refName, data, label) {
             const canvas = this.$refs[refName];
             if (!canvas) return;
@@ -395,8 +829,7 @@ createApp({
                                 titleFont: { size: 12, weight: '600' },
                                 bodyFont: { size: 12 },
                                 padding: { top: 8, bottom: 8, left: 12, right: 12 },
-                                cornerRadius: 8,
-                                displayColors: false
+                                cornerRadius: 8
                             }
                         },
                         scales: {
@@ -404,7 +837,7 @@ createApp({
                                 grid: { display: false },
                                 ticks: { 
                                     color: '#64748b', 
-                                    font: { size: 11, family: 'inherit' },
+                                    font: { size: 10, family: 'inherit' },
                                     maxRotation: 45,
                                     minRotation: 0
                                 }
@@ -421,6 +854,79 @@ createApp({
                     }
                 }));
             }
+        },
+
+        // --- Dashboard 交互与联动方法 ---
+        selectAttackFilter(typeName) {
+            if (this.selectedAttackFilter === typeName) {
+                this.selectedAttackFilter = '';
+            } else {
+                this.selectedAttackFilter = typeName;
+                const target = document.getElementById('highRiskIncidentsSection');
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+        },
+        toggleIpTab(tab) {
+            this.selectedIpTab = tab;
+            this.isIpsExpanded = false;
+        },
+        toggleIpsExpanded() {
+            this.isIpsExpanded = !this.isIpsExpanded;
+        },
+        toggleAttacksExpanded() {
+            this.isAttacksExpanded = !this.isAttacksExpanded;
+        },
+        toggleTrafficProfile() {
+            this.showTrafficProfile = !this.showTrafficProfile;
+            if (this.showTrafficProfile) {
+                this.$nextTick(() => {
+                    this.renderTrafficCharts();
+                });
+            }
+        },
+        async addIpToBlacklist(ipItem) {
+            const ip = typeof ipItem === 'string' ? ipItem : ipItem.ip;
+            if (!ip) return;
+            if (!confirm(`确定要将恶意 IP [${ip}] 添加至黑名单并阻断其所有访问吗？`)) return;
+
+            try {
+                const fileData = await this.apiRequest('/api/read-file?file=blackIp');
+                let content = fileData?.content || fileData || '';
+                const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+                if (lines.includes(ip)) {
+                    this.showToast(`IP ${ip} 已在黑名单列表中`, 'info');
+                    if (typeof ipItem === 'object') ipItem.is_blocked = true;
+                    return;
+                }
+                lines.push(ip);
+                const newContent = lines.join('\n') + '\n';
+                await this.apiRequest('/api/save-file', {
+                    method: 'POST',
+                    body: JSON.stringify({ file: 'blackIp', content: newContent })
+                });
+
+                if (typeof ipItem === 'object') ipItem.is_blocked = true;
+                ['all', 'vuln', 'cc'].forEach(k => {
+                    (this.dashboardStats.maliciousIps[k] || []).forEach(item => {
+                        if (item.ip === ip) item.is_blocked = true;
+                    });
+                });
+                (this.dashboardStats.recentAttacks || []).forEach(item => {
+                    if (item.ip === ip) item.is_blocked = true;
+                });
+
+                this.showToast(`已将恶意 IP ${ip} 加入黑名单，防护即时生效`, 'success');
+            } catch (err) {
+                this.showToast(`加入黑名单失败: ${err.message}`, 'error');
+            }
+        },
+        viewAttackDetail(attack) {
+            this.modal.title = `拦截事件明细 [${attack.attack_type || attack.type || attack.raw_type || attack.rule || '高危攻击'}]`;
+            this.modal.content = JSON.stringify(attack, null, 2);
+            this.modal.type = 'log';
+            this.modal.show = true;
         },
 
         // --- Rules Methods ---
@@ -498,7 +1004,6 @@ createApp({
                     method: 'POST',
                     body: JSON.stringify({ file, content })
                 });
-                // IP 黑白名单 / Host 白名单由后端广播热更新，保存即生效；waf.conf 仍需重载
                 const hotReloadFiles = ['blackIp', 'whiteIp', 'whitehost'];
                 if (hotReloadFiles.includes(file)) {
                     this.showToast(`文件 ${file} 已保存并即时生效`, 'success');
@@ -513,7 +1018,7 @@ createApp({
         // --- Logs Methods ---
         async loadLogs() {
             try {
-                const logsData = await this.apiRequest(`/api/logs?host=${this.logQuery.host}&date=${this.logQuery.date}&limit=100`);
+                const logsData = await this.apiRequest(`/api/logs?host=${encodeURIComponent(this.logQuery.host)}&date=${encodeURIComponent(this.logQuery.date)}&limit=100`);
                 let parsedLogs = [];
                 if (Array.isArray(logsData)) {
                     parsedLogs = logsData.map(line => {

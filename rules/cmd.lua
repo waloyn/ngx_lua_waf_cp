@@ -35,7 +35,7 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[(?:[|][|]|[|](?![|])|&(?=&)|`|\$\(|\n|\r)]],
+            pattern = [[(?:[|][|]|[|](?![|])|&(?=&)|`|\$\(|(?<!\r)\n|\r(?!\n))]],
             name = "Shell Operators and Command Substitution",
             confidence = 2
         },
