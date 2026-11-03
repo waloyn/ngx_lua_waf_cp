@@ -31,6 +31,14 @@ local TARGET_MAPPING = {
     ["其他攻击"] = "其他"
 }
 
+local empty_array_mt = cjson.empty_array_mt
+local function ensure_array(t)
+    if type(t) == "table" and #t == 0 and empty_array_mt then
+        setmetatable(t, empty_array_mt)
+    end
+    return t
+end
+
 -- 解析查询周期涵盖的日期列表与过滤小时
 local function getPeriodDates(p, now_ts, baseLogsPath)
     local dates = {}
@@ -44,7 +52,7 @@ local function getPeriodDates(p, now_ts, baseLogsPath)
         period_label = "当前小时"
     elseif p == "day" then
         table.insert(dates, os.date("%Y-%m-%d", now_ts))
-        period_label = "1 天"
+        period_label = "今日"
     elseif p == "week" then
         for i = 0, 6 do
             table.insert(dates, os.date("%Y-%m-%d", now_ts - (i * 86400)))
@@ -404,6 +412,7 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         end
         stats.top_ips = top20
     end
+    ensure_array(stats.top_ips)
 
     -- 2. 合并日志分析得到的高精度数据
     if log_res then
@@ -543,7 +552,7 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         for idx, item in ipairs(list) do
             item.rank = idx
         end
-        return list
+        return ensure_array(list)
     end
 
     stats.malicious_ips = {
@@ -564,6 +573,7 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         })
     end
     table.sort(stats.attack_types_list, function(a, b) return a.value > b.value end)
+    ensure_array(stats.attack_types_list)
 
     -- 10. 攻击源地理分布列表
     stats.attack_geo = {}
@@ -576,6 +586,7 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         })
     end
     table.sort(stats.attack_geo, function(a, b) return a.value > b.value end)
+    ensure_array(stats.attack_geo)
 
     -- 11. 雷达图数据与指标组装
     local max_target_val = 10
@@ -583,14 +594,14 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         if v > max_target_val then max_target_val = v end
     end
     stats.attack_targets_radar = {
-        labels = { "数据", "其他", "应用", "服务器", "文件" },
-        values = {
+        labels = ensure_array({ "数据", "其他", "应用", "服务器", "文件" }),
+        values = ensure_array({
             stats.attack_targets["数据"] or 0,
             stats.attack_targets["其他"] or 0,
             stats.attack_targets["应用"] or 0,
             stats.attack_targets["服务器"] or 0,
             stats.attack_targets["文件"] or 0
-        },
+        }),
         max = max_target_val
     }
 
@@ -632,12 +643,18 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
             table.insert(stats.recent_attacks, r)
         end
     end
+    ensure_array(stats.recent_attacks)
+
+    ensure_array(stats.attack_trend.hours)
+    ensure_array(stats.attack_trend.vuln)
+    ensure_array(stats.attack_trend.cc)
+    ensure_array(stats.attack_trend.total)
 
     -- 14. 态势简报 (时间序列)
     stats.security_summary = {
         domain_count = stats.domain_count,
         time_period = period_label,
-        total_attacks = total_attacks,
+        total_attacks = stats.blocked_requests,
         last_attack_time = (log_res and log_res.last_attack and log_res.last_attack.time) or "-",
         duration = "实时持续监控中",
         vuln_ip_count = stats.vuln_ips_count,
@@ -650,25 +667,25 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         top_vuln_location = top_vuln_loc,
         top_vuln_count = top_vuln_count,
         top_vuln_percent = top_vuln_pct,
-        peak_vuln_hour = string.format("%02d点", peak_v_h),
+        peak_vuln_hour = peak_v_cnt > 0 and string.format("%02d点", peak_v_h) or "-",
         peak_vuln_count = peak_v_cnt,
         cc_ip_count = stats.cc_ips_count,
         cc_attack_count = stats.cc_requests,
-        peak_cc_hour = string.format("%02d点", peak_c_h),
+        peak_cc_hour = peak_c_cnt > 0 and string.format("%02d点", peak_c_h) or "-",
         peak_cc_count = peak_cc_cnt
     }
 
     return stats
 end
 
--- 获取统计数据（默认：进程启动以来的总计；支持快捷筛选项：hour / day / week / month）
+-- 获取统计数据（默认：今日；支持快捷筛选项：hour / day / week / month / process）
 function _M.getStats(period)
     local countCache = require("cache"):new("nova_waf_count")
-    local p = (period or "process"):lower()
-    if p == "" or p == "all" or p == "total" then
-        p = "process"
-    elseif p == "today" then
+    local p = (period or "day"):lower()
+    if p == "" or p == "today" then
         p = "day"
+    elseif p == "all" or p == "total" or p == "process" then
+        p = "process"
     elseif p == "7d" then
         p = "week"
     elseif p == "30d" then
@@ -696,7 +713,7 @@ function _M.getStats(period)
         host_distribution = {},
         attack_types = {},          -- key -> count
         attack_types_detail = {},   -- name -> count
-        attack_types_list = {},     -- array of { name, value, percent, target }
+        attack_types_list = ensure_array({}),     -- array of { name, value, percent, target }
         attack_targets = {
             ["数据"] = 0,
             ["应用"] = 0,
@@ -705,20 +722,20 @@ function _M.getStats(period)
             ["其他"] = 0
         },
         attack_trend = {
-            hours = {},
-            vuln = {},
-            cc = {},
-            total = {}
+            hours = ensure_array({}),
+            vuln = ensure_array({}),
+            cc = ensure_array({}),
+            total = ensure_array({})
         },
-        attack_geo = {},            -- array of { name, value, percent }
-        top_ips = {},               -- access IP top 20
+        attack_geo = ensure_array({}),            -- array of { name, value, percent }
+        top_ips = ensure_array({}),               -- access IP top 20
         malicious_ips = {
-            all = {},
-            vuln = {},
-            cc = {}
+            all = ensure_array({}),
+            vuln = ensure_array({}),
+            cc = ensure_array({})
         },
         security_summary = {},
-        recent_attacks = {},
+        recent_attacks = ensure_array({}),
         period = p,
         report_time = os.date("%Y-%m-%d %H:%M:%S", now_ts)
     }

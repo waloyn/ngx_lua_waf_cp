@@ -20,7 +20,7 @@ createApp({
             },
             
             // Dashboard data
-            statsPeriod: 'process',
+            statsPeriod: 'day',
             periodOptions: [
                 { key: 'day', label: '日 (今日)' },
                 { key: 'week', label: '周 (7天)' },
@@ -106,26 +106,29 @@ createApp({
                 case 'week': return '近7天';
                 case 'month': return '近30天';
                 case 'hour': return '当前小时';
-                case 'process':
-                default: return '启动至今';
+                case 'process': return '启动至今';
+                default: return '今日';
             }
         },
         displayedMaliciousIps() {
-            const list = this.dashboardStats.maliciousIps[this.selectedIpTab] || [];
+            const mal = this.dashboardStats.maliciousIps;
+            const list = (mal && Array.isArray(mal[this.selectedIpTab])) ? mal[this.selectedIpTab] : [];
             if (!this.isIpsExpanded) {
                 return list.slice(0, 10);
             }
             return list;
         },
         totalMaliciousIpsCount() {
-            const list = this.dashboardStats.maliciousIps[this.selectedIpTab] || [];
+            const mal = this.dashboardStats.maliciousIps;
+            const list = (mal && Array.isArray(mal[this.selectedIpTab])) ? mal[this.selectedIpTab] : [];
             return list.length;
         },
         displayedRecentAttacks() {
-            let list = this.dashboardStats.recentAttacks || [];
+            let list = Array.isArray(this.dashboardStats.recentAttacks) ? this.dashboardStats.recentAttacks : [];
             if (this.selectedAttackFilter) {
                 list = list.filter(item => {
-                    const t = item.attack_type || item.type || item.raw_type || item.rule || item.category || '';
+                    if (!item) return false;
+                    const t = String(item.attack_type || item.type || item.raw_type || item.rule || item.category || '');
                     return t.includes(this.selectedAttackFilter) || this.selectedAttackFilter.includes(t);
                 });
             }
@@ -135,10 +138,11 @@ createApp({
             return list.slice(0, 50);
         },
         totalRecentAttacksCount() {
-            let list = this.dashboardStats.recentAttacks || [];
+            let list = Array.isArray(this.dashboardStats.recentAttacks) ? this.dashboardStats.recentAttacks : [];
             if (this.selectedAttackFilter) {
                 list = list.filter(item => {
-                    const t = item.attack_type || item.type || item.raw_type || item.rule || item.category || '';
+                    if (!item) return false;
+                    const t = String(item.attack_type || item.type || item.raw_type || item.rule || item.category || '');
                     return t.includes(this.selectedAttackFilter) || this.selectedAttackFilter.includes(t);
                 });
             }
@@ -264,48 +268,98 @@ createApp({
             this.statsPeriod = period;
             this.loadDashboardData(false);
         },
+        getMaliciousIpsCount(tab) {
+            const mal = this.dashboardStats.maliciousIps;
+            const list = mal && Array.isArray(mal[tab]) ? mal[tab] : [];
+            return list.length;
+        },
         async loadDashboardData(silent = false) {
             try {
                 const stats = await this.apiRequest(`/api/stats?period=${encodeURIComponent(this.statsPeriod)}`, {}, silent);
-                if (!stats) return;
+                if (!stats || typeof stats !== 'object') return;
 
-                const totalReq = Number(stats.total_requests || stats.totalRequests || 0);
-                const blockedReq = Number(stats.blocked_requests || stats.blockedRequests || 0);
-                const vulnReq = Number(stats.vuln_requests || stats.vulnRequests || 0);
-                const ccReq = Number(stats.cc_requests || stats.ccRequests || 0);
-                const typesList = stats.attack_types_list || stats.attackTypesList || [];
+                const toArray = (val) => Array.isArray(val) ? val : [];
+
+                const totalReq = Number(stats.total_requests ?? stats.totalRequests ?? 0) || 0;
+                const blockedReq = Number(stats.blocked_requests ?? stats.blockedRequests ?? 0) || 0;
+                const vulnReq = Number(stats.vuln_requests ?? stats.vulnRequests ?? 0) || 0;
+                const ccReq = Number(stats.cc_requests ?? stats.ccRequests ?? 0) || 0;
+                const typesList = toArray(stats.attack_types_list ?? stats.attackTypesList);
 
                 this.dashboardStats.totalRequests = totalReq;
                 this.dashboardStats.blockedRequests = blockedReq;
                 this.dashboardStats.vulnRequests = vulnReq;
                 this.dashboardStats.ccRequests = ccReq;
-                this.dashboardStats.attackIpsCount = Number(stats.attack_ips_count || stats.attacker_ips_count || stats.attackIpsCount || 0);
-                this.dashboardStats.vulnIpsCount = Number(stats.vuln_ips_count || stats.vulnIpsCount || 0);
-                this.dashboardStats.ccIpsCount = Number(stats.cc_ips_count || stats.ccIpsCount || 0);
-                this.dashboardStats.attackTypesCount = Number(stats.attack_types_count || stats.attackTypesCount || (typesList.length));
-                this.dashboardStats.domainCount = Number(stats.domain_count || stats.domainCount || 1);
+
+                const rawAttackIpsCount = stats.attack_ips_count ?? stats.attacker_ips_count ?? stats.attackIpsCount ?? 0;
+                this.dashboardStats.attackIpsCount = Number(rawAttackIpsCount) || 0;
+
+                const rawVulnIpsCount = stats.vuln_ips_count ?? stats.vulnIpsCount ?? 0;
+                this.dashboardStats.vulnIpsCount = Number(rawVulnIpsCount) || 0;
+
+                const rawCcIpsCount = stats.cc_ips_count ?? stats.ccIpsCount ?? 0;
+                this.dashboardStats.ccIpsCount = Number(rawCcIpsCount) || 0;
+
+                const rawTypesCount = stats.attack_types_count ?? stats.attackTypesCount;
+                this.dashboardStats.attackTypesCount = rawTypesCount != null ? (Number(rawTypesCount) || 0) : typesList.length;
+
+                const rawDomainCount = stats.domain_count ?? stats.domainCount;
+                this.dashboardStats.domainCount = Number(rawDomainCount) || 1;
+
                 this.dashboardStats.blockRate = stats.block_rate || stats.blockRate || (totalReq > 0 ? ((blockedReq / totalReq) * 100).toFixed(2) + '%' : '0%');
                 this.dashboardStats.reportTime = stats.report_time || stats.reportTime || new Date().toLocaleString();
                 this.dashboardStats.attackTypesList = typesList;
-                this.dashboardStats.attackTargets = stats.attack_targets || stats.attackTargets || {};
-                this.dashboardStats.attackTargetsRadar = stats.attack_targets_radar || stats.attackTargetsRadar || { labels: ['数据', '其他', '应用', '服务器', '文件'], values: [0, 0, 0, 0, 0], max: 100 };
-                this.dashboardStats.attackTrend = stats.attack_trend || stats.attackTrend || { hours: [], vuln: [], cc: [], total: [] };
-                this.dashboardStats.attackGeo = stats.attack_geo || stats.attackGeo || [];
-                this.dashboardStats.maliciousIps = stats.malicious_ips || stats.maliciousIps || { all: [], vuln: [], cc: [] };
-                this.dashboardStats.securitySummary = stats.security_summary || stats.securitySummary || {};
-                this.dashboardStats.recentAttacks = stats.recent_attacks || stats.recentAttacks || [];
+
+                const rawTargets = stats.attack_targets || stats.attackTargets;
+                this.dashboardStats.attackTargets = (rawTargets && typeof rawTargets === 'object' && !Array.isArray(rawTargets))
+                    ? rawTargets
+                    : { '数据': 0, '应用': 0, '服务器': 0, '文件': 0, '其他': 0 };
+
+                const rawRadar = stats.attack_targets_radar || stats.attackTargetsRadar || {};
+                this.dashboardStats.attackTargetsRadar = {
+                    labels: toArray(rawRadar.labels).length ? rawRadar.labels : ['数据', '其他', '应用', '服务器', '文件'],
+                    values: toArray(rawRadar.values).length ? rawRadar.values : [0, 0, 0, 0, 0],
+                    max: Number(rawRadar.max) || 100
+                };
+
+                const rawTrend = stats.attack_trend || stats.attackTrend || {};
+                const trendHours = toArray(rawTrend.hours).length ? rawTrend.hours : Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+                this.dashboardStats.attackTrend = {
+                    hours: trendHours,
+                    vuln: toArray(rawTrend.vuln).length ? rawTrend.vuln : new Array(trendHours.length).fill(0),
+                    cc: toArray(rawTrend.cc).length ? rawTrend.cc : new Array(trendHours.length).fill(0),
+                    total: toArray(rawTrend.total).length ? rawTrend.total : new Array(trendHours.length).fill(0)
+                };
+
+                this.dashboardStats.attackGeo = toArray(stats.attack_geo ?? stats.attackGeo);
+
+                const rawMalicious = stats.malicious_ips || stats.maliciousIps || {};
+                this.dashboardStats.maliciousIps = {
+                    all: toArray(rawMalicious.all),
+                    vuln: toArray(rawMalicious.vuln),
+                    cc: toArray(rawMalicious.cc)
+                };
+
+                this.dashboardStats.securitySummary = (stats.security_summary && typeof stats.security_summary === 'object' && !Array.isArray(stats.security_summary))
+                    ? stats.security_summary
+                    : {};
+
+                this.dashboardStats.recentAttacks = toArray(stats.recent_attacks ?? stats.recentAttacks);
 
                 // 流量画像数据
-                this.trafficProfileData.systemTypes = stats.os_distribution || stats.systemTypes || {};
-                this.trafficProfileData.hosts = stats.host_distribution || stats.hosts || {};
-                this.trafficProfileData.statusCodes = stats.status_distribution || stats.statusCodes || {};
+                this.trafficProfileData.systemTypes = (stats.os_distribution && typeof stats.os_distribution === 'object' && !Array.isArray(stats.os_distribution)) ? stats.os_distribution : {};
+                this.trafficProfileData.hosts = (stats.host_distribution && typeof stats.host_distribution === 'object' && !Array.isArray(stats.host_distribution)) ? stats.host_distribution : {};
+                this.trafficProfileData.statusCodes = (stats.status_distribution && typeof stats.status_distribution === 'object' && !Array.isArray(stats.status_distribution)) ? stats.status_distribution : {};
+
                 let topIps = stats.top_ips || stats.topIps || {};
                 if (Array.isArray(topIps)) {
                     const topIpsObj = {};
                     topIps.forEach(item => {
-                        if (item.ip && item.count) topIpsObj[item.ip] = item.count;
+                        if (item && item.ip && item.count) topIpsObj[item.ip] = item.count;
                     });
                     topIps = topIpsObj;
+                } else if (typeof topIps !== 'object' || topIps === null) {
+                    topIps = {};
                 }
                 this.trafficProfileData.topIps = topIps;
 
@@ -344,18 +398,23 @@ createApp({
             const canvas = this.$refs.attackTypeChart;
             if (!canvas) return;
 
-            const list = this.dashboardStats.attackTypesList || [];
+            const list = Array.isArray(this.dashboardStats.attackTypesList) ? this.dashboardStats.attackTypesList : [];
             if (list.length === 0) {
                 if (this.chartInstances['attackTypeChart']) {
                     this.chartInstances['attackTypeChart'].destroy();
                     delete this.chartInstances['attackTypeChart'];
                 }
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '13px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('暂无攻击类型记录', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '13px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const x = (canvas.offsetWidth || canvas.width || 300) / 2;
+                    const y = (canvas.offsetHeight || canvas.height || 240) / 2;
+                    ctx.fillText('暂无攻击类型记录', x, y);
+                }
                 return;
             }
 
@@ -424,9 +483,9 @@ createApp({
             const canvas = this.$refs.attackRadarChart;
             if (!canvas) return;
 
-            const radar = this.dashboardStats.attackTargetsRadar || { labels: ['数据', '其他', '应用', '服务器', '文件'], values: [0, 0, 0, 0, 0], max: 100 };
-            const labels = radar.labels || ['数据', '其他', '应用', '服务器', '文件'];
-            const values = radar.values || [0, 0, 0, 0, 0];
+            const radar = this.dashboardStats.attackTargetsRadar || {};
+            const labels = Array.isArray(radar.labels) && radar.labels.length ? radar.labels : ['数据', '其他', '应用', '服务器', '文件'];
+            const values = Array.isArray(radar.values) && radar.values.length ? radar.values : [0, 0, 0, 0, 0];
             const maxVal = radar.max && radar.max > 0 ? radar.max : 100;
 
             if (this.chartInstances['attackRadarChart']) {
@@ -493,10 +552,10 @@ createApp({
             const canvas = this.$refs.attackTrendChart;
             if (!canvas) return;
 
-            const trend = this.dashboardStats.attackTrend || { hours: [], vuln: [], cc: [] };
-            const hours = trend.hours && trend.hours.length ? trend.hours : Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
-            const vulnData = trend.vuln || [];
-            const ccData = trend.cc || [];
+            const trend = this.dashboardStats.attackTrend || {};
+            const hours = Array.isArray(trend.hours) && trend.hours.length ? trend.hours : Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+            const vulnData = Array.isArray(trend.vuln) && trend.vuln.length ? trend.vuln : new Array(hours.length).fill(0);
+            const ccData = Array.isArray(trend.cc) && trend.cc.length ? trend.cc : new Array(hours.length).fill(0);
 
             if (this.chartInstances['attackTrendChart']) {
                 const chart = this.chartInstances['attackTrendChart'];
@@ -594,18 +653,23 @@ createApp({
             const canvas = this.$refs.attackGeoChart;
             if (!canvas) return;
 
-            const geoList = (this.dashboardStats.attackGeo || []).slice(0, 10);
+            const geoList = (Array.isArray(this.dashboardStats.attackGeo) ? this.dashboardStats.attackGeo : []).slice(0, 10);
             if (geoList.length === 0) {
                 if (this.chartInstances['attackGeoChart']) {
                     this.chartInstances['attackGeoChart'].destroy();
                     delete this.chartInstances['attackGeoChart'];
                 }
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '13px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('暂无归属地统计', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '13px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const x = (canvas.offsetWidth || canvas.width || 300) / 2;
+                    const y = (canvas.offsetHeight || canvas.height || 240) / 2;
+                    ctx.fillText('暂无归属地统计', x, y);
+                }
                 return;
             }
 
@@ -680,34 +744,27 @@ createApp({
             const systemTypes = this.trafficProfileData.systemTypes || {};
             const hosts = this.trafficProfileData.hosts || {};
             const statusCodes = this.trafficProfileData.statusCodes || {};
-            let topIps = this.trafficProfileData.topIps || {};
+            const topIps = this.trafficProfileData.topIps || {};
 
-            const hasData = Object.keys(systemTypes).length || Object.keys(hosts).length || Object.keys(statusCodes).length || Object.keys(topIps).length;
-
-            if (!hasData) {
-                this.drawPieChart('systemTypeChart', {'Windows': 120, 'Linux': 85, 'Mac OS': 43, 'Android': 67, 'iOS': 38}, '系统类型');
-                this.drawPieChart('hostChart', {'default': 180, 'api.local': 98, 'waf.admin': 45}, 'HOST');
-                this.drawBarChart('statusCodeChart', {'200': 1250, '403': 156, '404': 89, '500': 23, '502': 12}, '状态码');
-                this.drawBarChart('topIpChart', {'127.0.0.1': 234, '192.168.1.100': 189, '10.0.0.50': 156, '172.16.0.25': 134}, '请求次数');
-            } else {
-                this.drawPieChart('systemTypeChart', systemTypes, '系统类型');
-                this.drawPieChart('hostChart', hosts, 'HOST');
-                this.drawBarChart('statusCodeChart', statusCodes, '状态码');
-                
-                const topIpsData = {};
+            this.drawPieChart('systemTypeChart', systemTypes, '系统类型');
+            this.drawPieChart('hostChart', hosts, 'HOST');
+            this.drawBarChart('statusCodeChart', statusCodes, '状态码');
+            
+            const topIpsData = {};
+            if (topIps && typeof topIps === 'object') {
                 Object.entries(topIps)
-                    .sort((a, b) => b[1] - a[1])
+                    .sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0))
                     .slice(0, 10)
                     .forEach(([k, v]) => { topIpsData[k] = v; });
-                this.drawBarChart('topIpChart', topIpsData, '请求次数');
             }
+            this.drawBarChart('topIpChart', topIpsData, '请求次数');
         },
 
         drawPieChart(refName, data, label) {
             const canvas = this.$refs[refName];
             if (!canvas) return;
             
-            const entries = Object.entries(data);
+            const entries = Object.entries(data || {});
             
             if (entries.length === 0) {
                 if (this.chartInstances[refName]) {
@@ -715,11 +772,16 @@ createApp({
                     delete this.chartInstances[refName];
                 }
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '13px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('暂无分布数据', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '13px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const x = (canvas.offsetWidth || canvas.width || 300) / 2;
+                    const y = (canvas.offsetHeight || canvas.height || 240) / 2;
+                    ctx.fillText('暂无分布数据', x, y);
+                }
                 return;
             }
 
@@ -780,7 +842,7 @@ createApp({
             const canvas = this.$refs[refName];
             if (!canvas) return;
             
-            const entries = Object.entries(data);
+            const entries = Object.entries(data || {});
 
             if (entries.length === 0) {
                 if (this.chartInstances[refName]) {
@@ -788,11 +850,16 @@ createApp({
                     delete this.chartInstances[refName];
                 }
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = '13px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('暂无统计数据', canvas.offsetWidth / 2, canvas.offsetHeight / 2 || 140);
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '13px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const x = (canvas.offsetWidth || canvas.width || 300) / 2;
+                    const y = (canvas.offsetHeight || canvas.height || 240) / 2;
+                    ctx.fillText('暂无统计数据', x, y);
+                }
                 return;
             }
 
@@ -909,13 +976,19 @@ createApp({
 
                 if (typeof ipItem === 'object') ipItem.is_blocked = true;
                 ['all', 'vuln', 'cc'].forEach(k => {
-                    (this.dashboardStats.maliciousIps[k] || []).forEach(item => {
-                        if (item.ip === ip) item.is_blocked = true;
+                    const arr = this.dashboardStats.maliciousIps && this.dashboardStats.maliciousIps[k];
+                    if (Array.isArray(arr)) {
+                        arr.forEach(item => {
+                            if (item && item.ip === ip) item.is_blocked = true;
+                        });
+                    }
+                });
+                const rec = this.dashboardStats.recentAttacks;
+                if (Array.isArray(rec)) {
+                    rec.forEach(item => {
+                        if (item && item.ip === ip) item.is_blocked = true;
                     });
-                });
-                (this.dashboardStats.recentAttacks || []).forEach(item => {
-                    if (item.ip === ip) item.is_blocked = true;
-                });
+                }
 
                 this.showToast(`已将恶意 IP ${ip} 加入黑名单，防护即时生效`, 'success');
             } catch (err) {

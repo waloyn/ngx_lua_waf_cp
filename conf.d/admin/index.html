@@ -355,7 +355,7 @@
                                     <p class="text-xs text-slate-400 mt-0.5">各类 Web 威胁与探测行为占比 ({{ statsPeriodLabel }})</p>
                                 </div>
                                 <span class="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                                    {{ dashboardStats.attackTypesList.length }} 种已检出类型
+                                    {{ (dashboardStats.attackTypesList || []).length }} 种已检出类型
                                 </span>
                             </div>
                             <div class="h-72 relative pt-2 flex-1">
@@ -489,7 +489,7 @@
                             </div>
 
                             <div class="mt-4 flex-1">
-                                <div v-if="dashboardStats.attackTypesList.length === 0" class="h-48 flex items-center justify-center text-xs text-slate-400">
+                                <div v-if="!dashboardStats.attackTypesList || dashboardStats.attackTypesList.length === 0" class="h-48 flex items-center justify-center text-xs text-slate-400">
                                     暂无检出的攻击类型数据
                                 </div>
                                 <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -538,21 +538,21 @@
                                     :class="selectedIpTab === 'all' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                                     class="px-2.5 py-1 rounded-md transition"
                                 >
-                                    全部恶意 IP ({{ (dashboardStats.maliciousIps.all || []).length }})
+                                    全部恶意 IP ({{ getMaliciousIpsCount('all') }})
                                 </button>
                                 <button 
                                     @click="toggleIpTab('vuln')" 
                                     :class="selectedIpTab === 'vuln' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                                     class="px-2.5 py-1 rounded-md transition"
                                 >
-                                    漏洞攻击 IP ({{ (dashboardStats.maliciousIps.vuln || []).length }})
+                                    漏洞攻击 IP ({{ getMaliciousIpsCount('vuln') }})
                                 </button>
                                 <button 
                                     @click="toggleIpTab('cc')" 
                                     :class="selectedIpTab === 'cc' ? 'bg-white text-indigo-600 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                                     class="px-2.5 py-1 rounded-md transition"
                                 >
-                                    CC 攻击 IP ({{ (dashboardStats.maliciousIps.cc || []).length }})
+                                    CC 攻击 IP ({{ getMaliciousIpsCount('cc') }})
                                 </button>
                             </div>
                         </div>
@@ -1229,6 +1229,6 @@
     </div>
 
     <!-- 主逻辑控制器 -->
-    <script src="static/js/app.js?v=20261101_01"></script>
+    <script src="static/js/app.js?v=20261103_02"></script>
 </body>
 </html>
