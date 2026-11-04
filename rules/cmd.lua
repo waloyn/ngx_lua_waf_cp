@@ -35,12 +35,12 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[(?:[|]{2}|&&|[|](?![|]))(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|\$\(\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|`\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b]],
+            pattern = [[(?:[|]{2}|&&|[|](?![|]))\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|\$\(\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|`\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b]],
             name = "Shell Operators and Command Substitution",
             confidence = 2
         },
         {
-            pattern = [[(?:^|[^a-zA-Z0-9_])(?:cat|whoami|uname|netstat|ifconfig|wget|curl|chmod|chown|find|grep|echo|kill)(?=[\s;|&`$<>(){}\[\]'"]|$)]],
+            pattern = [[(?:^|[^a-zA-Z0-9_])(?:id|sh|bash|cat|whoami|uname|netstat|ifconfig|wget|curl|chmod|chown|find|grep|echo|kill)(?=[\s;|&`$<>(){}\[\]'"]|$)]],
             name = "Common Linux Commands",
             confidence = 2
         },
@@ -93,6 +93,11 @@ local _M = {
             -- ${IFS} 单独出现即为攻击特征；PATH/HOME/USER/SHELL 展开需紧跟命令字符（避免模板文本 ${user} 误报）
             pattern = [[\$\{IFS\}|\$\{(?:PATH|HOME|USER|SHELL)(?::[\d:-]+)?\}(?=[a-zA-Z/.\-_$])|\$IFS\$\d]],
             name = "Shell Variable Bypass",
+            confidence = 3
+        },
+        {
+            pattern = [[\b(?:bash|sh|zsh)\s+-i\s+>&|/dev/(?:tcp|udp)/\d{1,3}\.\d{1,3}|\bnc(?:\.traditional)?\s+(?:-[a-z]*e\s+|-[a-z]*c\s+)]],
+            name = "Reverse Shell Payload",
             confidence = 3
         }
     }

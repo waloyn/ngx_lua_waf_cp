@@ -65,6 +65,18 @@ local _M = {
       pattern = [[ \.\.\xc0\xaf|\.\.\xc1\x9c ]],
       name = "Overlong UTF-8 Traversal (decoded)",
       confidence = 3
+    },
+    {
+      -- 双写与变体绕过（....//、....\\、..././ 等后端单次替换绕过）
+      pattern = [[ \.\.(?:\.\/|\.\/\/|\/\/|\.\\\\|\\\/|/\.\./)|\.\.\.\/ ]],
+      name = "Multi-dot and Slash Bypass Traversal",
+      confidence = 3
+    },
+    {
+      -- 双重 URL 编码绕过（%252e%252e%252f）
+      pattern = [[ %252e%252e(?:%252f|%255c)|%252e%252e/ ]],
+      name = "Double URL Encoded Traversal",
+      confidence = 3
     }
   }
 }

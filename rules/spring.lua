@@ -5,8 +5,8 @@ local _M = {
     position = "uri",
     rules = {
         {
-          -- 末尾用 (?=...) 限制边界，避免 /actuatorx 这类路径误报（原来的可选组使后缀不设限）
-          pattern = [[ /actuator(?:/auditLog|/auditevents|/autoconfig|/beans|/caches|/conditions|/configurationMetadata|/configprops|/dump|/env|/events|/exportRegisteredServices|/features|/flyway|/health|/heapdump|/healthcheck|/httptrace|/hystrix\.stream|/info|/integrationgraph|/jolokia|/logfile|/loggers|/loggingConfig|/liquibase|/metrics|/mappings|/scheduledtasks|/swagger-ui\.html|/prometheus|/refresh|/registeredServices|/releaseAttributes|/resolveAttributes|/sessions|/springWebflow|/shutdown|/sso|/ssoSessions|/statistics|/status|/threaddump|/trace)?(?=[\s/"'?#]|$) ]],
+          -- 末尾用 (?=...) 限制边界，放行 /health、/healthcheck 和 /info 等常规监控探针，防止 K8s/Nginx 探针误杀
+          pattern = [[ /actuator(?:/auditLog|/auditevents|/autoconfig|/beans|/caches|/conditions|/configurationMetadata|/configprops|/dump|/env|/events|/exportRegisteredServices|/features|/flyway|/heapdump|/httptrace|/hystrix\.stream|/integrationgraph|/jolokia|/logfile|/loggers|/loggingConfig|/liquibase|/metrics|/mappings|/scheduledtasks|/swagger-ui\.html|/prometheus|/refresh|/registeredServices|/releaseAttributes|/resolveAttributes|/sessions|/springWebflow|/shutdown|/sso|/ssoSessions|/statistics|/status|/threaddump|/trace)(?=[\s/"'?#]|$) ]],
           name = "Actuator Path Access",
           confidence = 2
         },

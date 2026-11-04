@@ -30,14 +30,20 @@
 │   ├── router.lua       # API路由
 │   ├── api.lua          # API接口
 │   └── auth.lua         # 认证管理 (会话 + CSRF Token)
-└── rules/
-    ├── sqli.lua         # SQL注入规则
-    ├── xss.lua          # XSS攻击规则
-    ├── cmd.lua          # 命令注入规则
-    ├── ssrf.lua         # SSRF攻击规则
-    ├── xxe.lua          # XXE攻击规则
-    ├── path.lua         # 路径遍历规则
-    └── ...              # 其他规则文件
+├── rules/
+│   ├── sqli.lua         # SQL注入规则
+│   ├── xss.lua          # XSS攻击规则
+│   ├── cmd.lua          # 命令注入规则
+│   ├── ssrf.lua         # SSRF攻击规则
+│   ├── xxe.lua          # XXE攻击规则
+│   ├── path.lua         # 路径遍历规则
+│   ├── spring.lua       # Spring 漏洞利用与端点规则
+│   ├── ldap.lua         # LDAP 与 JNDI 注入规则
+│   └── ...              # 其他规则文件 (共 16 类)
+└── tools/
+    ├── validate_rules.lua     # 规则离线编译与语法规范校验工具
+    ├── test_rule_hit_rate.lua  # 规则命中率与覆盖度基准测试工具
+    └── test_payloads.lua      # 16 类攻防基准测试用例库 (attacks / legitimate)
 ```
 
 ## 核心功能
@@ -59,17 +65,42 @@
   - HTML标签注入
 
 - **命令注入检测** (cmd.lua)
-  - PHP/Python/Ruby/Perl/Java命令执行函数
-  - Linux/Windows系统命令
-  - 敏感文件路径访问
+  - PHP/Python/Ruby/Perl/Java命令执行函数与代码执行
+  - Linux/Windows系统命令 (含 id、sh、bash、whoami 等高频命令)
+  - 管道与操作符命令连接 (支持容空格模式匹配如 `| whoami`、`&& id`、`|| uname`)
+  - 反弹 Shell 特征检测 (如 `bash -i >& /dev/tcp/...`、`nc -e /bin/sh` 等)
+  - 敏感系统文件路径访问与环境变量提取
+
+- **路径遍历检测** (path.lua)
+  - 经典 `../` / `..\` 目录穿越及变体检测
+  - 敏感系统文件探测 (如 `/etc/passwd`、`win.ini`、`/etc/shadow` 等)
+  - 多点与双写绕过防御 (拦截针对后端单次替换漏洞的 `....//`、`..././`、`....\\` 等变体)
+  - 双重 URL 编码绕过检测 (如 `%252e%252e%252f`)
+  - 超长 UTF-8 编码穿越 (`\xc0\xaf` 等)
+
+- **LDAP / JNDI 注入检测** (ldap.lua)
+  - Log4j2 JNDI 注入及混淆绕过 (`${jndi:ldap:...}`, `${lower:...}`, `${::-...}`)
+  - 经典 LDAP 逻辑过滤器注入 (`(&(...))`、`|`、`!`)
+  - 属性通配符绕过探测 (`uid=*`, `cn=*`, `sAMAccountName=*`)
+  - 对象类探测 (`objectClass=*`, `objectCategory=*`)
+  - 空字节截断注入 (`%00`, `\x00`)
+
+- **Spring 漏洞利用与端点访问** (spring.lua)
+  - Spring Boot Actuator 敏感端点未授权访问 (`/actuator/env`, `/actuator/heapdump`, `/actuator/mappings` 等)
+  - Swagger UI / OpenAPI 接口文档未授权泄露 (`/swagger-ui.html`, `/v2/api-docs`)
+  - 探针误报治理：精准放行常规健康检查端点 (`/actuator/health`, `/actuator/healthcheck`, `/actuator/info`)，避免 Kubernetes 存活探针与监控误拦截
 
 - **其他攻击类型**
-  - SSRF攻击检测
-  - XXE攻击检测
-  - 路径遍历检测
-  - 敏感信息泄露检测
-  - DNS攻击检测
-  - LDAP注入检测
+  - SSRF 服务端请求伪造 (ssrf.lua)
+  - XXE 外部实体注入 (xxe.lua)
+  - 备份与临时文件泄露 (backup.lua)
+  - 恶意机器人与扫描器识别 (bot.lua)
+  - 敏感信息与私钥配置泄露 (sensitive.lua)
+  - Java/PHP/Python 反序列化攻击 (deserialize.lua)
+  - NoSQL 注入检测 (nosql.lua)
+  - SSTI 模板注入检测 (ssti.lua)
+  - 文件上传恶意脚本与 MIME 绕过 (upload.lua)
+  - DNS 探测与带外回显 (dns.lua)
 
 #### CC攻击防护
 - 基于时间窗口的访问频率限制
@@ -436,6 +467,63 @@ statistics = "on"         # 统计功能
 5. 多位置检测(URI/Header/Body/Cookie/User-Agent),header 多值逐值入,避免 join 误命中
 6. body 落盘兜底:大 body 写到 `client_body_temp_path` 时,WAF 回读文件而非放过
 7. headers 无 100 上限(`get_headers(0)`),消除"发 >100 个 header 绕过"的盲区
+8. 多点与双写绕过识别: 针对后端单次替换修复的 `....//`、`..././`、`....\\` 等变体及双重 URL 编码穿越
+9. 反弹 Shell 与管道容空格支持: 精确覆盖 `bash -i >&`、`nc -e` 及 `| whoami`、`&& id` 模式
+10. 生产探针误报治理: 放行 `/actuator/health`、`/actuator/info` 等探针，杜绝 Kubernetes 健康检查误杀
+
+## 规则校验与基准测试工具
+
+项目在 `tools/` 目录下提供了完善的规则离线测试与质量保障工具链，支持在不重启或不上线的情况下验证规则语法有效性、检出率与误报表现：
+
+### 1. 规则语法与编译校验 (`validate_rules.lua`)
+
+- **功能**: 离线加载所有 `rules/*.lua` 文件，验证每个规则模块的 Lua 语法、`ngx.re.match` 正则表达式编译合法性（针对 OpenResty PCRE 引擎）、以及 `position` 字段白名单，避免规则因正则编译错误而在运行时被静默忽略。
+- **特性**: 支持 Windows 控制台代码页自适应（通过 Win32 API 动态适配 CP936/ANSI 与 UTF-8），避免控制台输出中文乱码或换行丢失。
+- **运行命令**:
+  ```bash
+  perl -x E:/WebSite/openresty/resty tools/validate_rules.lua
+  ```
+- **输出样例**:
+  ```text
+  [ OK ] backup.lua: 5 条规则
+  [ OK ] bot.lua: 9 条规则
+  [ OK ] cmd.lua: 19 条规则
+  [ OK ] deserialize.lua: 18 条规则
+  ...
+  合计 198 条规则：错误 0，警告 0
+  ```
+
+### 2. 命中率与覆盖度基准测试 (`test_rule_hit_rate.lua`)
+
+- **功能**: 对照基准测试用例库，全自动化测试 WAF 各模块的**攻击样本检出率 (TP)**、**良性样本误报率 (FP)** 以及**规则激活覆盖率 (Rule Coverage)**，并自动审计与列举 0 命中的规则盲区。
+- **特性**: 严格对齐 `waf.lua` 的检测数据结构（`checkData` 与 `position` 前缀过滤），支持参数过滤与外部用例扩展。
+- **常用选项**:
+  - `-h, --help`: 显示帮助信息
+  - `--type <name>`: 仅测试指定分类规则（例如 `--type sqli`、`--type cmd`）
+  - `-d, --detail`: 展示各规则具体命中频次明细及 0 命中盲区清单
+  - `-u, --uncovered`: 仅展示各模块未被覆盖的 0 命中规则清单
+  - `--file <path>`: 外挂指定的外部 JSON 格式测试用例文件
+- **运行命令**:
+  ```bash
+  # 全量运行基准测试
+  perl -x E:/WebSite/openresty/resty tools/test_rule_hit_rate.lua
+
+  # 仅测试命令注入规则并展示命中明细
+  perl -x E:/WebSite/openresty/resty tools/test_rule_hit_rate.lua --type cmd --detail
+
+  # 仅查看未覆盖规则盲区
+  perl -x E:/WebSite/openresty/resty tools/test_rule_hit_rate.lua --uncovered
+  ```
+- **测试指标与表现**:
+  - **总规则数**: 198 条规则（涵盖 16 个防护分类）
+  - **攻击检出率 (TP)**: 100.0% (110/110)
+  - **良性误报数 (FP)**: 0 (0/40)
+
+### 3. 测试用例库 (`test_payloads.lua`)
+
+- 包含 16 类攻防维度的基准测试载荷，分为两大集合：
+  - **attacks**: 包含真实渗透、编码绕过、混淆畸变等攻击样本（如多重 URL 编码、反弹 shell、LDAP 逻辑注入、JNDI 绕过等）。
+  - **legitimate**: 包含容易产生误报的合法业务载荷（如包含技术关键词的搜索词、带数学比较符号的评论、K8s 健康检查端点、正常用户邮箱与 JSON 数据包等）。
 
 ## 部署环境
 
