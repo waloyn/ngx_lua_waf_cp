@@ -17,10 +17,26 @@ local _M = {
             confidence = 3
         },
         {
+            -- 允许 / 与 \- 但排除 . ：修复 /.git/config、/.svn/entries 漏检，同时避免 app.config.json、user.profile.png 误报；
+            -- .env 单独放开（.env.production 等变体）
             pattern =
-            [[ \.(?:git|env|htaccess|config|svn|DS_Store|bzr|cvs|hg|npmrc|yarnrc|editorconfig|eslintignore|prettierignore|dockerignore|gitignore|gitattributes|gitmodules|credentials|aws|bashrc|bash_profile|bash_logout|inputrc|nanorc|profile|tmux\.conf|vimrc|zshrc|zprofile|zlogin|zlogout|zpreztorc)(?![\w.;/\\-]) ]],
+            [[ \.(?:git|htaccess|config|svn|DS_Store|bzr|cvs|hg|npmrc|yarnrc|editorconfig|eslintignore|prettierignore|dockerignore|gitignore|gitattributes|gitmodules|credentials|aws|bashrc|bash_profile|bash_logout|inputrc|nanorc|profile|tmux\.conf|vimrc|zshrc|zprofile|zlogin|zlogout|zpreztorc)(?![\w.\\-])|\.env(?!\w) ]],
             name = "Hidden Files",
             confidence = 3
+        },
+        {
+            -- 覆盖双扩展归档（backup.sql.gz / dump.tar.gz / www.tar.gz）
+            pattern =
+            [[ (?:backup|bak|old|www|root|site|web|archive|copy|stored|saved|temp|temporary|dump|data|test)[\w-]*\.(?:sql|tar|txt|log|db)\.(?:gz|bz2|xz|zip|7z) ]],
+            name = "Compound Archive Backup File",
+            confidence = 2
+        },
+        {
+            -- 编辑器备份后缀（index.php~ / note.~123~）
+            pattern =
+            [[ (?:\.[\w]{1,6}~|\.~\d*~)(?=$|[\s?#]) ]],
+            name = "Editor Backup Tilde Suffix",
+            confidence = 2
         },
     }
 }

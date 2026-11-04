@@ -20,7 +20,7 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [=[\b(?:system|exec)\s*\(|\bopen\s*\((?!.*\bid\b)|\beval\s*[\{\(]]=],
+            pattern = [=[\b(?:system|exec)\s*\(|\bopen\s*\(\s*[\\'"/$|&;]|\beval\s*[\{\(]]=],
             name = "Perl Functions",
             confidence = 3
         },
@@ -35,7 +35,7 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[(?:[|][|]|[|](?![|])|&(?=&)|`|\$\(|(?<!\r)\n|\r(?!\n))]],
+            pattern = [[(?:[|]{2}|&&|[|](?![|]))(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|\$\(\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|bash|sh|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b|`\s*(?:id|whoami|uname|ls|cat|curl|wget|nc|perl|python|php|powershell|cmd|net|rm|kill|chmod|ping)\b]],
             name = "Shell Operators and Command Substitution",
             confidence = 2
         },
@@ -90,7 +90,8 @@ local _M = {
             confidence = 3
         },
         {
-            pattern = [[\$\{(?:IFS|PATH|HOME|USER|SHELL)\}|\$IFS\$\d]],
+            -- ${IFS} 单独出现即为攻击特征；PATH/HOME/USER/SHELL 展开需紧跟命令字符（避免模板文本 ${user} 误报）
+            pattern = [[\$\{IFS\}|\$\{(?:PATH|HOME|USER|SHELL)(?::[\d:-]+)?\}(?=[a-zA-Z/.\-_$])|\$IFS\$\d]],
             name = "Shell Variable Bypass",
             confidence = 3
         }

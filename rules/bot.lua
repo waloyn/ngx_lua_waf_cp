@@ -5,7 +5,7 @@ local _M = {
     position = "user-agent",
     rules = {
         {
-            pattern = [[ user-agent:\s*(?:go-http|curl|wget|python-requests|libwww-perl|httpclient|python-urllib|http_request|java|scrapy|php|node\.js|mechanize|axios|httpie|okhttp|lua-resty-http|Go-http-client|Jakarta|Apache-HttpClient|libcurl|python-httpx|python-tornado|guzzlehttp|httplib2|perseus|resty|simplepie|typhoeus|aiohttp|http\.client|http\.request|Net::HTTP|HTTPie|PycURL|Requests|httplib|Mechanize|Scrapy|LWP::Simple|RestClient|async-http-client|got/|ky/|superagent|undici)(?![a-zA-Z0-9]) ]],
+            pattern = [[ user-agent:\s*(?:go-http|curl|wget|python-requests|libwww-perl|httpclient|python-urllib|http_request|java|scrapy|php|node\.js|mechanize|axios|httpie|okhttp|lua-resty-http|Go-http-client|Jakarta|Apache-HttpClient|libcurl|python-httpx|python-tornado|guzzlehttp|httplib2|perseus|resty|simplepie|typhoeus|aiohttp|http\.client|http\.request|Net::HTTP|HTTPie|PycURL|Requests|httplib|Mechanize|Scrapy|LWP::Simple|RestClient|async-http-client|got|ky|superagent|undici)(?![a-zA-Z0-9]) ]],
             name = "HTTP Client Library",
             confidence = 1
         },
@@ -35,7 +35,8 @@ local _M = {
             confidence = 1
         },
         {
-            pattern = [[ user-agent:\s*(?:bot|spider|crawler|scraper|harvest|grab|fetch|extract|collect|download)(?![a-zA-Z0-9])|\bbot\b|\bspider\b ]],
+            -- 不使用裸 \bbot\b / \bspider\b：会命中 Googlebot UA 中的 "bot.html"（+http://www.google.com/bot.html）
+            pattern = [[ user-agent:\s*(?:bot|spider|crawler|scraper|harvest|grab|fetch|extract|collect|download)(?![a-zA-Z0-9]) ]],
             name = "Generic Bot Keyword",
             confidence = 1
         },
@@ -43,6 +44,13 @@ local _M = {
             pattern = [[ user-agent:\s*(?:-|""|''|null|undefined|none|test|debug|admin|root|anonymous|\x00|\s{5,})$|^user-agent:\s*$ ]],
             name = "Suspicious/Empty User-Agent",
             confidence = 2
+        },
+        {
+            -- 工具名不在 UA 开头时（伪装成浏览器，如 "... (compatible; Nmap Scripting Engine; ...)"）也能识别；
+            -- 仅收录不易与正常 UA 混淆的专有工具名（不含 cobalt/empire 等易误报词）
+            pattern = [[ (?:^|[\s;(,:])(?:sqlmap|nikto|nmap|masscan|zmap|nessus|openvas|acunetix|burpsuite|owasp[\s-]*zap|zaproxy|arachni|w3af|skipfish|wapiti|nuclei|jaeles|havij|pangolin|sqlninja|dbpwaudit|jsql|xenotix|xsser|gobuster|feroxbuster|dirsearch|dirbuster|wfuzz|metasploit|meterpreter|mimikatz|bloodhound|crackmapexec|impacket|ettercap|bettercap|ysoserial)(?=[\s;/),:]|$) ]],
+            name = "Scanner/Pentest Tool Token (any position)",
+            confidence = 3
         }
     }
 }

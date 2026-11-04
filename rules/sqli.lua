@@ -5,7 +5,8 @@ local _M = {
   position = "uri,body,cookie",
   rules = {
     {
-      pattern = [[ select\s+\S+.*?\s+from\s+\S+ ]],
+      -- 要求 select 后为 *、逗号列名列表、点号列名或函数调用，避免英文散文 "select ... from ..." 误报
+      pattern = [[ \bselect\s+(?:\*|\S+(?:\s*,\s*\S+)+|\S+\.\S+|\S+\([^)]*\))\s+from\s+\S+ ]],
       name = "Select-From Statement",
       confidence = 3
     },
@@ -50,7 +51,7 @@ local _M = {
       confidence = 2
     },
     {
-      pattern = [[ \b(?:union\s+all\s+select|union\s+select|select\s+[\w\*]+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|drop\s+(?:table|database)|alter\s+table)\b ]],
+      pattern = [[ \b(?:union\s+all\s+select|union\s+select|select\s+(?:\*|\d+|\S+(?:\s*,\s*\S+)+|\S+\.\S+|\S+\([^)]*\))\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|drop\s+(?:table|database)|alter\s+table)\b ]],
       name = "SQL Keywords",
       confidence = 2
     },

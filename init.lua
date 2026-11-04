@@ -240,6 +240,8 @@ function load_rules()
         return
     end
 
+    -- 加载期 pattern 编译校验开关（init 上下文不支持 ngx.re 时降级为一次告警）
+    local can_validate = true
     local rules_directory = CURRENT_PATH .. "rules/"
 
     for file in iterate_directory(rules_directory) do
@@ -271,8 +273,21 @@ function load_rules()
                         if raw.rules then
                             for _, item in ipairs(raw.rules) do
                                 if item.pattern then
+                                    local p = item.pattern:match("^%s*(.-)%s*$")
+                                    -- 加载期编译校验：pattern 编译失败时 ngx.re.match 只返回 nil（被匹配逻辑视为未命中），
+                                    -- 规则会静默失效（如 Lua 长字符串截断），必须在加载期显式告警。
+                                    if can_validate then
+                                        local pok, _, _, rerr = pcall(ngx.re.find, "validate", p, "isjo")
+                                        if not pok then
+                                            can_validate = false
+                                            ngx.log(ngx.WARN, "[waf] pattern validation unavailable in this context: ", tostring(rerr))
+                                        elseif rerr then
+                                            ngx.log(ngx.ERR, "[waf] rule ", key, " pattern compile failed (",
+                                                tostring(item.name), "): ", tostring(rerr))
+                                        end
+                                    end
                                     table.insert(preprocessed, {
-                                        pattern    = item.pattern:match("^%s*(.-)%s*$"),
+                                        pattern    = p,
                                         name       = item.name,
                                         confidence = tonumber(item.confidence) or 1,
                                     })

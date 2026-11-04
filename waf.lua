@@ -118,23 +118,31 @@ function Waf:isBlockedIp()
     return false
 end
 
-function Waf:ret403(msg)
+-- 统一的拦截响应：按 status 返回（403=规则拦截，429=CC 限流）
+function Waf:retStatus(status, msg)
     self.count:addReqDenyCount()
     local content = get403Content()
 
     ngx.header.content_type = "text/html"
-    ngx.status = ngx.HTTP_FORBIDDEN
+    ngx.status = status
     -- 用 function 形式替换，避免替换串中 `%` 被 gsub 解释为捕获引用
     content = safeReplace(content, "{BLOCK_REASON}", msg)
     content = safeReplace(content, "{REQUEST_ID}", self.request_id)
     content = safeReplace(content, "{REQUEST_TIME}", ngx.localtime())
     content = safeReplace(content, "{IP}", self.ip)
+    content = safeReplace(content, "{STATUS}", tostring(status))
+    content = safeReplace(content, "{STATUS_TEXT}", status == 429 and "请求过于频繁" or "访问被拒绝")
     if WAF_CONFIG["debug"] == "on" then
         ngx.say(htmlEscape(msg))
     else
         ngx.say(content)
     end
-    ngx.exit(ngx.HTTP_FORBIDDEN)
+    ngx.exit(status)
+end
+
+-- 兼容保留：默认 403 拦截
+function Waf:ret403(msg)
+    return self:retStatus(ngx.HTTP_FORBIDDEN, msg)
 end
 
 function Waf:recordRequest(rule, body)
@@ -398,7 +406,7 @@ function Waf:process()
         self:recordRequest("CC Attack", "")
         self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
         if not is_monitor then
-            self:ret403("CC Attack")
+            self:retStatus(429, "CC Attack")
             return
         end
     elseif self:isBigRequest() then

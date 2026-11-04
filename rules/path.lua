@@ -15,6 +15,11 @@ local _M = {
       confidence = 2
     },
     {
+      pattern = [[ \.\.\\ ]],
+      name = "Parent Directory Traversal (..\\)",
+      confidence = 3
+    },
+    {
       pattern = [[ /\.\.\\|\\\.\./ ]],
       name = "Mixed Slash Traversal",
       confidence = 3

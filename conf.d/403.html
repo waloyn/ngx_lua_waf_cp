@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>403 - 访问被拒绝</title>
+    <title>{STATUS} - {STATUS_TEXT}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -76,7 +76,7 @@
             <div class="icon">
                 <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
             </div>
-            <h1>访问被拒绝</h1>
+            <h1>{STATUS_TEXT}</h1>
         </div>
         <div class="info">
             <div class="row"><span class="label">请求ID</span><span class="value">{REQUEST_ID}</span></div>

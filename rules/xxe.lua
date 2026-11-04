@@ -4,25 +4,12 @@ local _M = {
   level = "high",
   position = "uri,body",
   rules = {
-    {
-      pattern = [[ <!ENTITY\s+.+> ]],
-      name = "Generic ENTITY Declaration",
-      confidence = 2
-    },
-    {
-      pattern = [[ <!DOCTYPE\s+.+\[ ]],
-      name = "DOCTYPE Declaration",
-      confidence = 2
-    },
+    -- 顺序约定：具体规则在前、泛化规则在后。
+    -- 引擎在单个规则文件内“首个命中即停”，泛化规则排前会把 SYSTEM/PUBLIC 等具体命中降档为低置信度。
     {
       pattern = [[ <!ENTITY\s+.+\s+SYSTEM\s+['\"].+['\"]\s*> ]],
       name = "SYSTEM Entity Declaration",
       confidence = 3
-    },
-    {
-      pattern = [[ <!ENTITY\s+.+\s+PUBLIC\s+['\"].+['\"]\s+['\"].+['\"]\s*> ]],
-      name = "PUBLIC Entity Declaration",
-      confidence = 2
     },
     {
       pattern = [[ <!ENTITY\s+%\s+\S+\s+SYSTEM\s+['\"] ]],
@@ -38,6 +25,21 @@ local _M = {
       pattern = [[ <!ENTITY\s+%\s+\S+\s+['\"]%[^'\"]+;%[^'\"]+;['\"] ]],
       name = "Blind XXE Parameter Entity Chain",
       confidence = 3
+    },
+    {
+      pattern = [[ <!ENTITY\s+.+\s+PUBLIC\s+['\"].+['\"]\s+['\"].+['\"]\s*> ]],
+      name = "PUBLIC Entity Declaration",
+      confidence = 2
+    },
+    {
+      pattern = [[ <!DOCTYPE\s+.+\[ ]],
+      name = "DOCTYPE Declaration",
+      confidence = 2
+    },
+    {
+      pattern = [[ <!ENTITY\s+.+> ]],
+      name = "Generic ENTITY Declaration",
+      confidence = 2
     }
   }
 }

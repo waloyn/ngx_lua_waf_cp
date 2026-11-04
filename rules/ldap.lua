@@ -15,6 +15,12 @@ local _M = {
             confidence = 3
         },
         {
+            -- 单字符混淆绕过：${${lower:j}ndi:...} / ${${upper:J}NDI:...} / ${${::-j}ndi:...}
+            pattern = [[\$\{[^}]*\$\{[^}]*\}[^}]*ndi\s*:]],
+            name = "Obfuscated JNDI (Single-Char Split)",
+            confidence = 3
+        },
+        {
             pattern = [[\$\{(?:[^}]*:.*?)?j\}?\$\{(?:[^}]*:.*?)?n\}?\$\{(?:[^}]*:.*?)?d\}?\$\{(?:[^}]*:.*?)?i\}?:]],
             name = "Split Character JNDI Injection",
             confidence = 3

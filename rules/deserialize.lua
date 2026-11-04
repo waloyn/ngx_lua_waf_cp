@@ -84,7 +84,7 @@ local _M = {
             confidence = 2
         },
         {
-            pattern = [[__ViewState(?:Encrypted)?=|(?:AAEAAAD|AQAAAA)]],
+            pattern = [[__ViewState(?:Encrypted)?=]],
             name = ".NET ViewState",
             confidence = 2
         },
