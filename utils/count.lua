@@ -121,12 +121,29 @@ function _M:addReqDenyCount()
     self:Incr(self.REQ_DENY_COUNT)
 end
 
+-- 记录人机挑战下发/通过/失败统计（含按类型细分）
+function _M:addChallengeCount(result, kind)
+    if not result then
+        return
+    end
+    self:Incr("challenge_" .. result)
+    if kind and #kind <= 32 then
+        self:Incr("challenge_" .. result .. "_" .. kind)
+    end
+end
+
 -- 智能分类攻击类型、统计键名、攻击目标与是否为CC攻击（对齐安全分析报告）
 local function classifyAttack(ruleName, uri)
     local raw = (ruleName or "") .. " " .. (uri or "")
     local lower = string.lower(raw)
 
-    if lower:find("cc", 1, true) then
+    if lower:find("behavior challenge", 1, true) or lower:find("behavior detection", 1, true) then
+        return "异常行为访问", "behavior", "其他", true
+    elseif lower:find("cc challenge", 1, true) then
+        return "CC攻击", "cc", "其他", true
+    elseif lower:find("challenge failure", 1, true) then
+        return "人机验证失败", "challenge", "其他", true
+    elseif lower:find("cc", 1, true) then
         return "CC攻击", "cc", "其他", true
     elseif lower:find("blind", 1, true) or lower:find("sleep", 1, true) or lower:find("benchmark", 1, true) or lower:find("waitfor", 1, true) then
         return "SQL盲注攻击探测", "sql_blind", "数据", false

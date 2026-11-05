@@ -4,6 +4,8 @@ local localCount = require "count"
 local cjson = require "cjson.safe"   -- safe 版本：编码失败返回 nil+err 而非 raise
 local decoder = require "decoder"
 local ip = require "ip"
+local behavior = require "behavior"
+local challenge = require "challenge"
 
 -- 缓存 403 页面内容（模块级缓存，只读取一次；修改 403.html 需 reload nginx）
 local cached403Content = nil
@@ -118,6 +120,51 @@ function Waf:isBlockedIp()
     return false
 end
 
+-- 是否已通过人机挑战（签名 Cookie 绑定 IP，有效期由 cc_challenge_ttl 控制）
+function Waf:hasPassedChallenge()
+    if not self:isChallengeEnabled() then
+        return false
+    end
+    return challenge.is_passed(self)
+end
+
+-- 静态资源扩展名：只对页面导航做挑战/行为评估，避免图片、脚本把挑战页当资源加载
+local STATIC_EXT = {
+    css = true, js = true, mjs = true, map = true,
+    png = true, jpg = true, jpeg = true, gif = true, webp = true, avif = true, bmp = true, svg = true, ico = true,
+    woff = true, woff2 = true, ttf = true, otf = true, eot = true,
+    mp3 = true, mp4 = true, webm = true, ogg = true, wav = true, flv = true, m3u8 = true, ts = true,
+    zip = true, gz = true, rar = true, ["7z"] = true, tar = true, pdf = true, doc = true, docx = true,
+    xls = true, xlsx = true, ppt = true, pptx = true, txt = true, csv = true,
+}
+
+-- 仅对浏览器页面导航请求做人机挑战，静态资源/接口请求保持原有 429 语义
+function Waf:isNavigationRequest()
+    -- 只挑战 GET：HEAD 没有响应体，POST 多为接口提交
+    if ngx.req.get_method() ~= "GET" then
+        return false
+    end
+    local uri = ngx.var.uri or ""
+    local ext = uri:match("%.([%w]+)$")
+    if ext and STATIC_EXT[string.lower(ext)] then
+        return false
+    end
+    local dest = behavior.header(self, "sec-fetch-dest")
+    if dest then
+        return dest == "document" or dest == "iframe" or dest == "frame"
+    end
+    local accept = behavior.header(self, "accept") or ""
+    return string.find(string.lower(accept), "text/html", 1, true) ~= nil
+end
+
+-- 计算行为风险分（供 CC 触发后的分级处置与日志使用）
+function Waf:behaviorScore()
+    if WAF_CONFIG["behavior_defence"] == "off" then
+        return 0, {}
+    end
+    return behavior.evaluate(self, self:isNavigationRequest())
+end
+
 -- 统一的拦截响应：按 status 返回（403=规则拦截，429=CC 限流）
 function Waf:retStatus(status, msg)
     self.count:addReqDenyCount()
@@ -225,19 +272,110 @@ function Waf:isBigRequest()
     return false
 end
 
-function Waf:isCCAttack()
+function Waf:isCCAttack(passed)
     if WAF_CONFIG["cc_defence"] == "off" then
         return false
     end
     local limit = tonumber(WAF_CONFIG["cc_limit"]) or 100
     local seconds = tonumber(WAF_CONFIG["cc_seconds"]) or 60
 
+    local key = self.key_cc
+    if passed then
+        -- 已通过挑战的客户端使用独立的高水位计数，防止“解一次题后无限刷”
+        local factor = tonumber(WAF_CONFIG["cc_passed_factor"]) or 6
+        if factor < 1 then factor = 1 end
+        limit = limit * factor
+        key = "ccp:" .. self.ip
+    end
+
     -- 原子递增，避免高并发计数丢失
-    local count = self.cache:cacheIncr(self.key_cc, 1, seconds) or 1
+    local count = self.cache:cacheIncr(key, 1, seconds) or 1
     if count > limit then
         return true
     end
     return false
+end
+
+-- 人机挑战是否启用（cc_challenge=off 时全部回退为原有 429/403 语义）
+function Waf:isChallengeEnabled()
+    return (WAF_CONFIG["cc_challenge"] or "auto") ~= "off"
+end
+
+-- 行为特征风险分级：返回 "challenge"（进挑战）、"block"（直接拒绝）或 nil（放行）
+-- 仅对浏览器导航请求评估，静态资源与接口请求继续沿用 CC 限流逻辑
+function Waf:behaviorVerdict()
+    if WAF_CONFIG["behavior_defence"] == "off" then
+        return nil, 0, {}
+    end
+    if not self:isNavigationRequest() then
+        return nil, 0, {}
+    end
+
+    local block_score = tonumber(WAF_CONFIG["behavior_block_score"]) or 0
+    -- 挑战关闭且未显式配置直接拦截阈值时，行为检测仅保持惰性，避免 403 误伤
+    if not self:isChallengeEnabled() and block_score <= 0 then
+        return nil, 0, {}
+    end
+
+    local sample = tonumber(WAF_CONFIG["behavior_sample"]) or 10
+    local key = "behc:" .. self.ip
+    local seen = self.cache:cacheIncr(key, 1, tonumber(WAF_CONFIG["behavior_window"]) or 60) or 1
+    if seen <= sample then
+        return nil, 0, {}
+    end
+
+    local score, reasons = self:behaviorScore()
+    local challenge_score = tonumber(WAF_CONFIG["behavior_challenge_score"]) or 6
+
+    if block_score > 0 and score >= block_score then
+        return "block", score, reasons
+    end
+    if score >= challenge_score then
+        return "challenge", score, reasons
+    end
+    return nil, score, reasons
+end
+
+-- CC/行为触发后的统一处置：
+--   1. 挑战关闭或非导航请求：保持原有 429（不把 HTML 挑战页返回给接口客户端）；
+--   2. 导航请求：下发人机挑战；下发失败时回退 429。
+-- 同一 IP 的日志与统计按窗口节流，防止持续攻击把磁盘日志与共享计数打爆。
+function Waf:shouldLogThrottled(kind)
+    local seconds = tonumber(WAF_CONFIG["attack_log_interval"]) or 60
+    if seconds <= 0 then
+        return true
+    end
+    local key = "wafthrottle:" .. kind .. ":" .. self.ip
+    return self.cache:cacheAdd(key, 1, seconds) == true
+end
+
+function Waf:handleCC(reason, detail)
+    local issued, created = false, false
+    -- 仅对浏览器页面导航下发 HTML 挑战；接口/静态资源继续返回 429，避免客户端解析异常
+    if self:isChallengeEnabled() and self:isNavigationRequest() then
+        issued, created = challenge.issue(self, {
+            reason = reason,
+            orig = ngx.var.request_uri,
+        })
+        if issued then
+            self.count:addReqDenyCount()
+            if created and self:shouldLogThrottled("cc_challenge") then
+                ngx.log(ngx.WARN, "CC challenge issued: ", self.ip,
+                    " reason=", tostring(reason), " detail=", tostring(detail))
+                self:recordRequest("CC Challenge", "")
+                self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
+            end
+            return
+        end
+    end
+
+    self.count:addReqDenyCount()
+    if self:shouldLogThrottled("cc_block") then
+        ngx.log(ngx.WARN, "CC Attack: ", self.ip, " (", tostring(detail or reason), ")")
+        self:recordRequest("CC Attack", "")
+        self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
+    end
+    self:retStatus(429, "CC Attack")
 end
 
 -- 读取并缓存请求 body（一次性）：避免 attack 和 calculateRequestSize 重复 read_body + io.open
@@ -374,6 +512,17 @@ end
 function Waf:process()
     -- 名单热更新：管理员改动 IP 黑白名单 / Host 白名单后，本 worker 下一次请求即生效（无需重载 nginx）
     if ensure_lists_fresh then ensure_lists_fresh() end
+
+    -- 人机验证提交入口：必须在统计/名单/CC 判定之前处理，否则验证请求自身会被计入 CC 计数
+    if challenge.is_verify_request(ngx.var.uri) then
+        if WAF_CONFIG["mode"] == "protection" then
+            challenge.handle_verify(self)
+        else
+            ngx.exit(ngx.HTTP_NOT_FOUND)
+        end
+        return
+    end
+
     self.count:addReqCount(self.ip)
     local mode = WAF_CONFIG["mode"]
     if mode == "off" then
@@ -388,6 +537,8 @@ function Waf:process()
     end
 
     local is_monitor = (mode == "monitor")
+    -- 已通过人机挑战的浏览器在有效期内跳过 CC 与行为检测（规则检测仍然生效）
+    local passed = self:hasPassedChallenge()
 
     if self:isBlackIp() then
         ngx.log(ngx.WARN, "Black IP: ", self.ip)
@@ -401,15 +552,74 @@ function Waf:process()
             self:ret403("Your IP has been blocked")
             return
         end
-    elseif self:isCCAttack() then
-        ngx.log(ngx.WARN, "CC Attack: ", self.ip)
-        self:recordRequest("CC Attack", "")
-        self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
+    elseif not passed and self:isCCAttack(false) then
+        if is_monitor then
+            -- 监控模式仅记录，不拦截
+            if self:shouldLogThrottled("cc_block") then
+                ngx.log(ngx.WARN, "CC Attack (monitor): ", self.ip)
+                self:recordRequest("CC Attack", "")
+                self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
+            end
+        else
+            self:handleCC("cc", "rate-limit")
+            return
+        end
+    elseif passed and self:isCCAttack(true) then
+        -- 已通过挑战但仍超出放大后的阈值，说明是持续刷量，直接 429
+        if self:shouldLogThrottled("cc_block") then
+            ngx.log(ngx.WARN, "CC flood after challenge: ", self.ip)
+            self:recordRequest("CC Attack", "")
+            self.count:addAttackCount("cc", self.ip, self.host, ngx.var.request_uri)
+        end
         if not is_monitor then
             self:retStatus(429, "CC Attack")
             return
         end
-    elseif self:isBigRequest() then
+    elseif not passed then
+        local verdict, score, reasons = self:behaviorVerdict()
+        if is_monitor and verdict then
+            -- 监控模式仅记录行为判定结果
+            if self:shouldLogThrottled("behavior_monitor") then
+                ngx.log(ngx.WARN, "Behavior ", verdict, " (monitor): ", self.ip, " score=", score,
+                    " reasons=", table.concat(reasons, ","))
+                self:recordRequest("Behavior Detection", "")
+                self.count:addAttackCount("Behavior Detection", self.ip, self.host, ngx.var.request_uri)
+            end
+        elseif verdict == "block" then
+            self.count:addReqDenyCount()
+            if self:shouldLogThrottled("behavior_block") then
+                ngx.log(ngx.WARN, "Behavior blocked: ", self.ip, " score=", score,
+                    " reasons=", table.concat(reasons, ","))
+                self:recordRequest("Behavior Detection", "")
+                self.count:addAttackCount("Behavior Detection", self.ip, self.host, ngx.var.request_uri)
+            end
+            self:ret403("Abnormal access behavior detected")
+            return
+        elseif verdict == "challenge" then
+            local issued, created = challenge.issue(self, { reason = "behavior", orig = ngx.var.request_uri })
+            if not issued then
+                -- 挑战关闭或下发失败：按可疑行为降级处置，避免放行
+                self.count:addReqDenyCount()
+                if self:shouldLogThrottled("behavior_block") then
+                    ngx.log(ngx.WARN, "Behavior blocked (challenge unavailable): ", self.ip, " score=", score)
+                    self:recordRequest("Behavior Detection", "")
+                    self.count:addAttackCount("Behavior Detection", self.ip, self.host, ngx.var.request_uri)
+                end
+                self:ret403("Abnormal access behavior detected")
+                return
+            end
+            self.count:addReqDenyCount()
+            if created and self:shouldLogThrottled("behavior_challenge") then
+                ngx.log(ngx.WARN, "Behavior challenge: ", self.ip, " score=", score,
+                    " reasons=", table.concat(reasons, ","))
+                self:recordRequest("Behavior Challenge", "")
+                self.count:addAttackCount("Behavior Challenge", self.ip, self.host, ngx.var.request_uri)
+            end
+            return
+        end
+    end
+
+    if self:isBigRequest() then
         ngx.log(ngx.WARN, "Big request: ", self.ip)
         if not is_monitor then
             self:ret403("Request body is too large")

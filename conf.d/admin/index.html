@@ -308,7 +308,9 @@
                                 <div class="text-xl sm:text-2xl font-bold tracking-tight text-indigo-600">
                                     {{ formatNumber(dashboardStats.ccRequests) }}
                                 </div>
-                                <div class="text-[11px] text-slate-400 truncate mt-0.5">高频恶意刷量拦截</div>
+                                <div class="text-[11px] text-slate-400 truncate mt-0.5">
+                                    人机验证 通过 {{ formatNumber(dashboardStats.challengeStats.passed) }} / 下发 {{ formatNumber(dashboardStats.challengeStats.issued) }}
+                                </div>
                             </div>
                         </div>
 
@@ -467,6 +469,7 @@
                                     <div class="space-y-1.5 text-slate-600 leading-relaxed">
                                         <p>• 累计记录 <strong class="text-slate-800 font-semibold">{{ dashboardStats.securitySummary.cc_ip_count || dashboardStats.ccIpsCount }}</strong> 个高频 IP 发起 <strong class="text-indigo-600 font-semibold">{{ formatNumber(dashboardStats.securitySummary.cc_attack_count || dashboardStats.ccRequests) }}</strong> 次频次阻断。</p>
                                         <p>• CC 攻击峰值时段：<span class="font-medium text-slate-800">{{ dashboardStats.securitySummary.peak_cc_hour || '-' }}</span>，单小时阻断 {{ formatNumber(dashboardStats.securitySummary.peak_cc_count || 0) }} 次</p>
+                                        <p>• 人机挑战：下发 <strong class="text-slate-800 font-semibold">{{ formatNumber(dashboardStats.challengeStats.issued) }}</strong> 次，通过 <strong class="text-emerald-600 font-semibold">{{ formatNumber(dashboardStats.challengeStats.passed) }}</strong> 次，失败 <strong class="text-rose-600 font-semibold">{{ formatNumber(dashboardStats.challengeStats.failed) }}</strong> 次</p>
                                     </div>
                                 </div>
                             </div>
