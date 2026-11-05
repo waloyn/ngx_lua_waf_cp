@@ -8,6 +8,75 @@ end
 if BASE:sub(-1) ~= "/" then BASE = BASE .. "/" end
 package.path = BASE .. "?.lua;" .. BASE .. "utils/?.lua;" .. BASE .. "tools/?.lua;" .. package.path
 
+-- Windows 控制台默认使用 ANSI 代码页（简体中文为 936）。UTF-8 中文直接写入会乱码，
+-- 且末字节可能被当成双字节字符的首字节而吞掉后面的换行，所以输出到控制台时转换编码；
+-- 重定向到文件或管道时保持 UTF-8。
+local function make_say()
+    local stdout = io.stdout
+    local function plain(s)
+        stdout:write(s or "", "\n")
+        stdout:flush()
+    end
+
+    if package.config:sub(1, 1) ~= "\\" then
+        return plain
+    end
+
+    local ok, ffi = pcall(require, "ffi")
+    if not ok then
+        return plain
+    end
+
+    local kernel32 = ffi.load("kernel32")
+    ffi.cdef[[
+        void *GetStdHandle(unsigned int nStdHandle);
+        int GetConsoleMode(void *hConsoleHandle, unsigned int *lpMode);
+        unsigned int GetConsoleOutputCP(void);
+        int MultiByteToWideChar(unsigned int CodePage, unsigned long dwFlags,
+            const char *lpMultiByteStr, int cbMultiByte,
+            uint16_t *lpWideCharStr, int cchWideChar);
+        int WideCharToMultiByte(unsigned int CodePage, unsigned long dwFlags,
+            const uint16_t *lpWideCharStr, int cchWideChar,
+            char *lpMultiByteStr, int cbMultiByte,
+            const char *lpDefaultChar, int *lpUsedDefaultChar);
+    ]]
+
+    local handle = kernel32.GetStdHandle(-11) -- STD_OUTPUT_HANDLE
+    local mode = ffi.new("unsigned int[1]")
+    if kernel32.GetConsoleMode(handle, mode) == 0 then
+        return plain -- 输出已重定向
+    end
+
+    local cp = kernel32.GetConsoleOutputCP()
+    if cp == 0 or cp == 65001 then
+        return plain -- 控制台已经使用 UTF-8
+    end
+
+    local function to_console_cp(s)
+        if not s or s == "" then return "" end
+        local n = kernel32.MultiByteToWideChar(65001, 0, s, #s, nil, 0)
+        if n <= 0 then return s end
+        local w = ffi.new("uint16_t[?]", n)
+        if kernel32.MultiByteToWideChar(65001, 0, s, #s, w, n) <= 0 then
+            return s
+        end
+        local m = kernel32.WideCharToMultiByte(cp, 0, w, n, nil, 0, nil, nil)
+        if m <= 0 then return s end
+        local b = ffi.new("char[?]", m)
+        if kernel32.WideCharToMultiByte(cp, 0, w, n, b, m, nil, nil) <= 0 then
+            return s
+        end
+        return ffi.string(b, m)
+    end
+
+    return function(s)
+        stdout:write(to_console_cp(s or ""), "\n")
+        stdout:flush()
+    end
+end
+
+local say = make_say()
+
 -- ============ ngx stub ============
 local dict_store = {}
 local dict_expire = {}
@@ -118,10 +187,10 @@ local function test(name, fn)
     total = total + 1
     local ok, err = pcall(fn)
     if ok then
-        print(string.format("[PASS] %s", name))
+        say(string.format("[PASS] %s", name))
     else
         failed = failed + 1
-        print(string.format("[FAIL] %s -> %s", name, tostring(err)))
+        say(string.format("[FAIL] %s -> %s", name, tostring(err)))
     end
 end
 
@@ -380,5 +449,5 @@ test("验证失败达到上限后封禁 IP", function()
     assert(dict_store["block:203.0.113.9"] ~= nil, "ip not blocked after max failures")
 end)
 
-print(string.format("\n%d tests, %d failed", total, failed))
+say(string.format("\n%d tests, %d failed", total, failed))
 if failed > 0 then os.exit(1) end
