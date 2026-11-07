@@ -42,6 +42,15 @@ function _M:cacheIncr(key, increment, expireTime)
     return value, err
 end
 
+-- 仅当 key 不存在时写入（原子），用于节流/单次标记
+function _M:cacheAdd(key, value, expireTime)
+    local ok, err = self.cache:add(key, value, expireTime)
+    if not ok and err and err ~= "exists" then
+        ngx.log(ngx.WARN, "failed to add key: " .. key .. " ", err)
+    end
+    return ok, err
+end
+
 -- 获取指定键的值
 function _M:cacheGet(key)
     local value, err = self.cache:get(key)

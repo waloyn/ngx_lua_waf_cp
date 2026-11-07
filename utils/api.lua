@@ -28,6 +28,8 @@ local TARGET_MAPPING = {
     ["恶意文件上传"] = "文件",
     ["Unknown扫描"] = "其他",
     ["CC攻击"] = "其他",
+    ["异常行为访问"] = "其他",
+    ["人机验证失败"] = "其他",
     ["其他攻击"] = "其他"
 }
 
@@ -286,6 +288,25 @@ local function mergeStatKey(stats, ip_counts, attacker_ip_counts, vuln_ip_counts
 
     if sub_key == "attack_cc_total" then
         stats.cc_requests = stats.cc_requests + val
+        return
+    end
+
+    if sub_key == "attack_behavior_total" then
+        stats.behavior_requests = (stats.behavior_requests or 0) + val
+        return
+    end
+
+    -- 人机挑战统计（下发 / 通过 / 失败），并按挑战类型细分
+    local chal_result, chal_kind = sub_key:match("^challenge_(%a+)_([%w]+)$")
+    if chal_result then
+        stats.challenge[chal_result] = (stats.challenge[chal_result] or 0) + val
+        local type_key = chal_result .. ":" .. chal_kind
+        stats.challenge_by_type[type_key] = (stats.challenge_by_type[type_key] or 0) + val
+        return
+    end
+    local chal_match = sub_key:match("^challenge_(%a+)$")
+    if chal_match then
+        stats.challenge[chal_match] = (stats.challenge[chal_match] or 0) + val
         return
     end
 
@@ -650,6 +671,11 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
     ensure_array(stats.attack_trend.cc)
     ensure_array(stats.attack_trend.total)
 
+    -- 顶层挑战指标（前端直接读取，便于非仪表盘场景复用）
+    stats.challenge_issued = stats.challenge.issued or 0
+    stats.challenge_passed = stats.challenge.passed or 0
+    stats.challenge_failed = stats.challenge.failed or 0
+
     -- 14. 态势简报 (时间序列)
     stats.security_summary = {
         domain_count = stats.domain_count,
@@ -672,7 +698,11 @@ local function finalizeStats(stats, ip_counts, attacker_ip_counts, vuln_ip_count
         cc_ip_count = stats.cc_ips_count,
         cc_attack_count = stats.cc_requests,
         peak_cc_hour = peak_c_cnt > 0 and string.format("%02d点", peak_c_h) or "-",
-        peak_cc_count = peak_cc_cnt
+        peak_cc_count = peak_cc_cnt,
+        challenge_issued = stats.challenge.issued or 0,
+        challenge_passed = stats.challenge.passed or 0,
+        challenge_failed = stats.challenge.failed or 0,
+        challenge_by_type = stats.challenge_by_type,
     }
 
     return stats
@@ -701,6 +731,7 @@ function _M.getStats(period)
         blocked_requests = 0,
         vuln_requests = 0,
         cc_requests = 0,
+        behavior_requests = 0,
         blocked_ips = (BLACK_IPS and #BLACK_IPS) or 0,
         attacker_ips_count = 0,
         vuln_ips_count = 0,
@@ -736,6 +767,8 @@ function _M.getStats(period)
         },
         security_summary = {},
         recent_attacks = ensure_array({}),
+        challenge = { issued = 0, passed = 0, failed = 0 },
+        challenge_by_type = {},
         period = p,
         report_time = os.date("%Y-%m-%d %H:%M:%S", now_ts)
     }

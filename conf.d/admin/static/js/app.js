@@ -47,6 +47,7 @@ createApp({
                 attackGeo: [],
                 maliciousIps: { all: [], vuln: [], cc: [] },
                 securitySummary: {},
+                challengeStats: { issued: 0, passed: 0, failed: 0 },
                 recentAttacks: []
             },
             trafficProfileData: {
@@ -290,6 +291,13 @@ createApp({
                 this.dashboardStats.blockedRequests = blockedReq;
                 this.dashboardStats.vulnRequests = vulnReq;
                 this.dashboardStats.ccRequests = ccReq;
+
+                const chal = (stats.challenge && typeof stats.challenge === 'object') ? stats.challenge : {};
+                this.dashboardStats.challengeStats = {
+                    issued: Number(chal.issued ?? stats.challenge_issued ?? 0) || 0,
+                    passed: Number(chal.passed ?? stats.challenge_passed ?? 0) || 0,
+                    failed: Number(chal.failed ?? stats.challenge_failed ?? 0) || 0
+                };
 
                 const rawAttackIpsCount = stats.attack_ips_count ?? stats.attacker_ips_count ?? stats.attackIpsCount ?? 0;
                 this.dashboardStats.attackIpsCount = Number(rawAttackIpsCount) || 0;

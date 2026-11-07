@@ -107,6 +107,22 @@
 - 可配置访问次数和时间窗口
 - 默认: 60秒内100次请求
 
+#### 人机挑战（行为特征检测 + 多级验证）
+- **行为特征检测**（`utils/behavior.lua`）：对导航请求做轻量指纹评分，命中项包括：
+  - UA 特征：空/超短 UA、curl/wget/python-requests/okhttp 等自动化客户端
+  - 协议与头部完整性：HTTP/1.0、缺少 Accept / Accept-Language / Accept-Encoding
+  - 浏览器一致性：Mozilla UA 缺少 `Sec-Fetch-*`、Chromium UA 缺少 `Sec-CH-UA`、Header 数量过少
+  - 请求间隔规律性：连续请求间隔稳定在 ±8ms 内（脚本定时器特征）、导航间隔 <60ms
+  - 首次冷启动导航（无 Referer 且无 Cookie）
+- **四级挑战**：`js`（哈希工作量证明）、`redirect`（5 秒等待跳转）、`slider`（滑块对齐缺口）、`captcha`（内置 5x7 点阵 SVG 字符验证码，非文本节点）
+- **auto 模式**：按同一 IP 的触发次数自动逐级升级，默认顺序 `js → redirect → slider → captcha`
+- **通行凭据**：验证通过后签发绑定客户端 IP 的签名 Cookie（`nova_waf_pass`），在 `cc_challenge_ttl` 内跳过 CC 与行为检测；已通过者使用放大 `cc_passed_factor` 倍的独立限流阈值，防止解一次题后无限刷
+- **防滥用**：挑战答案只存共享字典（页面仅下发随机 ID）；同一 IP+UA 复用未过期挑战；单 IP 下发频率上限；失败次数达阈值后临时封禁
+- **降级语义**：非导航请求（接口、静态资源）仍返回原有 429，不注入 HTML；`cc_challenge = "off"` 时完全回退到旧行为
+- **开放重定向防护**：验证后的跳转目标仅接受本站相对路径
+
+验证端点（由 WAF 在 access 阶段直接处理，无需修改 nginx 配置）：`POST /_waf_challenge/verify`
+
 ### 2. 访问控制
 
 #### IP管理
@@ -190,15 +206,18 @@ block_timeout = 600       # IP封禁时长(秒)
 │  3. 检查域名白名单 → 放行                                     │
 │  4. 检查IP黑名单 → 拦截                                       │
 │  5. 检查IP是否被封禁 → 拦截                                   │
-│  6. 检查CC攻击 → 拦截                                        │
-│  7. 检查请求体大小 → 拦截                                     │
-│  8. 规则匹配检测:                                            │
+│  6. 检查CC攻击 → 挑战/拦截                                   │
+│     - 人机挑战关闭或非导航请求 → 429                          │
+│     - 导航请求 → JS/5秒跳转/滑块/验证码                       │
+│  7. 行为特征评分 → 挑战/拦截（导航请求）                      │
+│  8. 检查请求体大小 → 拦截                                     │
+│  9. 规则匹配检测:                                            │
 │     - URL解码 (多层解码防绕过)                                │
 │     - URI检测                                                │
 │     - Header检测                                             │
 │     - Body检测                                               │
 │     - Cookie检测                                             │
-│  9. 匹配到攻击 → 记录日志 + 拦截/放行                          │
+│ 10. 匹配到攻击 → 记录日志 + 拦截/放行                          │
 └─────────────────────┬───────────────────────────────────────┘
                       │
                       ▼
@@ -287,6 +306,15 @@ possibly:{ip}       # 疑似攻击置信度
 attack:{ip}         # 攻击次数
 attackCount:{ip}    # 历史攻击计数
 cc:{ip}             # CC攻击计数 (滑动窗口)
+ccp:{ip}            # 已通过挑战者的独立CC计数
+beh:{ip}            # 行为检测：最近请求时间/间隔/规律计数
+behc:{ip}           # 行为检测采样计数
+chal:{id}           # 挑战内容（类型/IP/时间/答案/回跳地址）
+chalip:{ip}:{ua}    # 同 IP+UA 的挑战复用索引
+chalissue:{ip}      # 单IP挑战下发频次
+chalfail:{ip}       # 挑战失败次数
+chaln:{ip}          # CC触发的挑战升级计数
+behchaln:{ip}       # 行为触发的挑战升级计数
 csrf:{session_id}   # CSRF Token (管理后台)
 ```
 
@@ -442,6 +470,25 @@ cc_defence = "on"         # CC攻击防护开关
 cc_limit = 100            # 访问频率限制
 cc_seconds = 60           # 时间窗口(秒)
 
+# CC 人机挑战
+cc_challenge = "auto"     # off/js/redirect/slider/captcha/auto
+cc_challenge_order = "js,redirect,slider,captcha"  # auto 升级顺序
+cc_challenge_ttl = 1800   # 通过后免验证时长(秒)
+cc_challenge_delay = 5    # 5秒跳转等待时长
+cc_challenge_pow = 3      # JS 工作量证明难度(前导零位数 1~6)
+cc_challenge_max_fail = 5 # 挑战失败封禁阈值
+cc_challenge_fail_time = 600  # 失败计数窗口/封禁时长(秒)
+cc_challenge_issue_max = 20   # 单IP下发挑战上限(防刷页)
+cc_passed_factor = 6      # 已通过者CC阈值放大倍数
+challenge_secret = ""     # Cookie 签名密钥(留空自动生成)
+
+# 行为特征检测
+behavior_defence = "on"            # 总开关
+behavior_window = 60               # 采样窗口(秒)
+behavior_sample = 10               # 前N个请求仅采样不判定
+behavior_challenge_score = 6       # 触发挑战的风险分
+behavior_block_score = 0           # 直接403的风险分(0=不启用)
+
 # 其他功能
 inject_trap = "on"        # 诱捕功能
 statistics = "on"         # 统计功能
@@ -458,6 +505,7 @@ statistics = "on"         # 统计功能
 6. **动态封禁**: 自适应封禁时长，有效防止持续攻击
 7. **完整日志**: JSON格式日志，便于分析和审计
 8. **可视化管理**: Web管理后台，操作便捷
+9. **人机挑战**: 行为特征检测 + JS工作量证明 / 5秒跳转 / 滑块 / 验证码四级挑战，兼顾防护强度与正常用户可达性
 
 ### 防绕过机制
 1. 多层URL解码(递归至稳定,超 `decode_max_count` 视为恶意)
